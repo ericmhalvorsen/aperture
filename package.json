@@ -1,0 +1,62 @@
+{
+	"name": "@promptuary/aperture",
+	"version": "0.1.0",
+	"description": "Browser-to-agent bridge for Promptuary. Auto-connects your dev browser to any MCP-capable agent.",
+	"license": "MIT",
+	"type": "module",
+	"main": "./dist/server.js",
+	"types": "./dist/server.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/server.d.ts",
+			"import": "./dist/server.js"
+		},
+		"./react": {
+			"types": "./dist/react.d.ts",
+			"import": "./dist/react.js"
+		},
+		"./server": {
+			"types": "./dist/server.d.ts",
+			"import": "./dist/server.js"
+		}
+	},
+	"bin": {
+		"aperture": "./dist/bin.js"
+	},
+	"scripts": {
+		"build": "tsc",
+		"dev": "tsc --watch",
+		"lint": "biome lint .",
+		"format": "biome format --write .",
+		"check": "biome check .",
+		"audit:deps": "pnpm audit",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"changeset": "changeset",
+		"version-packages": "changeset version",
+		"release": "pnpm build && changeset publish",
+		"publint": "publint"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.4.16",
+		"@changesets/cli": "^2.31.0",
+		"@types/node": "^20",
+		"@types/react": "^19",
+		"@types/react-dom": "^19",
+		"@types/ws": "^8",
+		"jsdom": "^29.1.1",
+		"publint": "^0.3.21",
+		"react": "^19",
+		"typescript": "^5",
+		"vitest": "^4.1.7",
+		"ws": "^8"
+	},
+	"peerDependencies": {
+		"react": ">=18",
+		"react-dom": ">=18"
+	},
+	"files": [
+		"dist",
+		"README.md"
+	]
+}
