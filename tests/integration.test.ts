@@ -91,6 +91,13 @@ beforeAll(async () => {
 				approved: true,
 				capabilities: ["console", "dom", "network", "storage"],
 			}),
+		customTools: {
+			custom_redux_state: {
+				description: "Gets fake redux state",
+				inputSchema: { type: "object", properties: {} },
+				handler: () => ({ state: "faked" }),
+			}
+		}
 	});
 
 	client.connect();
@@ -171,4 +178,45 @@ test("routes tool calls from MCP to client and returns results", async () => {
 	);
 	expect(matchingLog).toBeDefined();
 	expect(matchingLog?.level).toBe("log");
+});
+
+test("exposes custom tools in tools/list and routes custom tool calls", async () => {
+	// Request tools/list to verify custom tool is exposed
+	const listRequest = {
+		jsonrpc: "2.0" as const,
+		id: "mcp-list-1",
+		method: "tools/list",
+	};
+
+	const listPromise = new Promise<any>((resolve) => {
+		(server as any).handleMCPRequest(listRequest, resolve);
+	});
+	const listResponse = await listPromise;
+
+	expect(listResponse.result.tools).toBeDefined();
+	const customTool = listResponse.result.tools.find(
+		(t: any) => t.name === "custom_redux_state"
+	);
+	expect(customTool).toBeDefined();
+	expect(customTool.description).toBe("Gets fake redux state");
+
+	// Call the custom tool
+	const callRequest = {
+		jsonrpc: "2.0" as const,
+		id: "mcp-req-2",
+		method: "tools/call",
+		params: {
+			name: "custom_redux_state",
+			arguments: {},
+		},
+	};
+
+	const callPromise = new Promise<any>((resolve) => {
+		(server as any).handleMCPRequest(callRequest, resolve);
+	});
+	const callResponse = await callPromise;
+
+	expect(callResponse.jsonrpc).toBe("2.0");
+	expect(callResponse.id).toBe("mcp-req-2");
+	expect(callResponse.result).toEqual({ state: "faked" });
 });

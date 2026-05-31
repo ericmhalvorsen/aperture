@@ -3,11 +3,18 @@
  * Auto-connects to the bridge server and exposes browser APIs to MCP agents.
  */
 
+export interface CustomToolDefinition {
+	description: string;
+	inputSchema: object;
+	handler: (client: ApertureClient, args: Record<string, any>) => any | Promise<any>;
+}
+
 interface BridgeConfig {
 	serverUrl: string;
 	onApprovalRequest?: (
 		agentName: string,
-	) => Promise<{ approved: boolean; capabilities: string[] }>;
+	) => Promise<{ approved: boolean; capabilities: string[]; dismissed?: boolean }>;
+	customTools?: Record<string, CustomToolDefinition>;
 }
 
 interface ConsoleEntry {
@@ -644,10 +651,19 @@ export class ApertureClient {
 		this.ws = new WebSocket(url.toString());
 
 		this.ws.onopen = () => {
+			const customToolsPayload = this.config.customTools 
+				? Object.entries(this.config.customTools).map(([name, def]) => ({
+						name,
+						description: def.description,
+						inputSchema: def.inputSchema
+					}))
+				: [];
+
 			this.send({
 				type: "register",
 				url: window.location.href,
 				title: document.title,
+				customTools: customToolsPayload,
 			});
 			console.log("[Aperture] Connected to server");
 			this.updateBadge("connected");
@@ -666,20 +682,23 @@ export class ApertureClient {
 				const msg = JSON.parse(event.data);
 				if (msg.type === "tool_call") {
 					await this.handleToolCall(msg);
-				} else if (msg.type === "agent_connected") {
-					if (!this.approved && !this.denied) {
-						const decision = await this.getApproval("MCP Agent");
-						this.approved = decision.approved;
-						this.denied = !decision.approved;
-						this.capabilities = decision.capabilities;
-						this.saveApproval(this.approved, this.capabilities, decision.ttlMs);
-						this.send({
-							type: "approval",
-							approved: this.approved,
-							capabilities: this.capabilities,
-						});
+			} else if (msg.type === "agent_connected") {
+				if (!this.approved && !this.denied) {
+					const decision = await this.getApproval("MCP Agent");
+					if (decision.dismissed) {
+						return;
 					}
+					this.approved = decision.approved;
+					this.denied = !decision.approved;
+					this.capabilities = decision.capabilities;
+					this.saveApproval(this.approved, this.capabilities, decision.ttlMs);
+					this.send({
+						type: "approval",
+						approved: this.approved,
+						capabilities: this.capabilities,
+					});
 				}
+			}
 			} catch {
 				// ignore
 			}
@@ -755,6 +774,14 @@ export class ApertureClient {
 		// Ask user for approval on first tool call
 		if (!this.approved) {
 			const decision = await this.getApproval("MCP Agent");
+			if (decision.dismissed) {
+				this.send({
+					type: "result",
+					requestId: msg.requestId,
+					result: { error: "User dismissed the approval request" },
+				});
+				return;
+			}
 			this.approved = decision.approved;
 			this.denied = !decision.approved;
 			this.capabilities = decision.capabilities;
@@ -775,7 +802,10 @@ export class ApertureClient {
 			}
 		}
 
-		const handler = TOOL_HANDLERS[msg.tool];
+		const builtInHandler = TOOL_HANDLERS[msg.tool];
+		const customHandler = this.config.customTools?.[msg.tool]?.handler;
+		const handler = builtInHandler || customHandler;
+		
 		if (!handler) {
 			this.send({
 				type: "result",
@@ -799,16 +829,17 @@ export class ApertureClient {
 
 	private async getApproval(
 		agentName: string,
-	): Promise<{ approved: boolean; capabilities: string[]; ttlMs?: number }> {
+	): Promise<{ approved: boolean; capabilities: string[]; ttlMs?: number; dismissed?: boolean }> {
 		if (this.config.onApprovalRequest) {
-			return this.config.onApprovalRequest(agentName);
+			const result = await this.config.onApprovalRequest(agentName);
+			return { ...result, dismissed: false };
 		}
 		return this.showVanillaApprovalDialog(agentName);
 	}
 
 	private showVanillaApprovalDialog(
 		agentName: string,
-	): Promise<{ approved: boolean; capabilities: string[]; ttlMs?: number }> {
+	): Promise<{ approved: boolean; capabilities: string[]; ttlMs?: number; dismissed?: boolean }> {
 		return new Promise((resolve) => {
 			if (typeof document === "undefined") {
 				resolve({ approved: false, capabilities: [] });
@@ -827,17 +858,20 @@ export class ApertureClient {
               <p class="aperture-subtitle">${agentName} wants to access this tab</p>
             </div>
           </div>
-          
+
           <div class="aperture-body">
-            The agent will be able to read:
+            By allowing, the agent will be able to:
             <ul class="aperture-list">
-              <li>Console logs</li>
-              <li>DOM queries & page text</li>
-              <li>Network requests</li>
-              <li>localStorage & cookies</li>
+              <li>Read the current page URL, title, and visible text</li>
+              <li>Query the DOM and read element attributes / contents</li>
+              <li>View console logs (errors, warnings, info, debug)</li>
+              <li>Monitor network requests made by this page</li>
+              <li>Read localStorage and cookies for this origin</li>
+              <li id="aperture-perm-screenshot">Capture screenshots of the page</li>
+              <li id="aperture-perm-eval">Execute arbitrary JavaScript in this page</li>
             </ul>
           </div>
-          
+
           <div class="aperture-options">
             <label class="aperture-checkbox-label">
               <input type="checkbox" id="aperture-allow-screenshot" checked />
@@ -846,9 +880,9 @@ export class ApertureClient {
                 <div class="aperture-checkbox-desc">Requests browser tab/screen sharing for live views</div>
               </div>
             </label>
-            
+
             <label class="aperture-checkbox-label">
-              <input type="checkbox" id="aperture-allow-eval" />
+              <input type="checkbox" id="aperture-allow-eval" checked />
               <div>
                 <strong>Allow JavaScript evaluation</strong>
                 <div class="aperture-checkbox-desc">Enables arbitrary JS execution in this page (dangerous)</div>
@@ -856,19 +890,20 @@ export class ApertureClient {
             </label>
 
             <label class="aperture-checkbox-label">
-              <input type="checkbox" id="aperture-remember-24h" />
+              <input type="checkbox" id="aperture-remember-24h" checked />
               <div>
                 <strong>Trust this device for 24 hours</strong>
                 <div class="aperture-checkbox-desc">Otherwise approval resets after 1 hour</div>
               </div>
             </label>
 
-            <div id="aperture-eval-warning" class="aperture-warning-box">
+            <div id="aperture-eval-warning" class="aperture-warning-box visible">
               ⚠️ Warning: Allowing evaluation lets the agent run any command or access any sensitive data on this origin.
             </div>
           </div>
-          
+
           <div class="aperture-footer">
+            <button id="aperture-btn-dismiss" class="aperture-btn aperture-btn-deny">Dismiss</button>
             <button id="aperture-btn-deny" class="aperture-btn aperture-btn-deny">Deny</button>
             <button id="aperture-btn-allow" class="aperture-btn aperture-btn-allow">Allow for this session</button>
           </div>
@@ -887,12 +922,27 @@ export class ApertureClient {
 			const warningBox = overlay.querySelector(
 				"#aperture-eval-warning",
 			) as HTMLElement;
+			const screenshotPerm = overlay.querySelector(
+				"#aperture-perm-screenshot",
+			) as HTMLElement;
+			const evalPerm = overlay.querySelector(
+				"#aperture-perm-eval",
+			) as HTMLElement;
+
 			evalCheckbox.addEventListener("change", () => {
 				if (evalCheckbox.checked) {
 					warningBox.classList.add("visible");
 				} else {
 					warningBox.classList.remove("visible");
 				}
+				if (evalPerm) evalPerm.style.display = evalCheckbox.checked ? "list-item" : "none";
+			});
+
+			const screenshotCheckbox = overlay.querySelector(
+				"#aperture-allow-screenshot",
+			) as HTMLInputElement;
+			screenshotCheckbox.addEventListener("change", () => {
+				if (screenshotPerm) screenshotPerm.style.display = screenshotCheckbox.checked ? "list-item" : "none";
 			});
 
 			const cleanup = () => {
@@ -901,6 +951,13 @@ export class ApertureClient {
 					overlay.remove();
 				}, 300);
 			};
+
+			overlay
+				.querySelector("#aperture-btn-dismiss")
+				?.addEventListener("click", () => {
+					cleanup();
+					resolve({ approved: false, capabilities: [], dismissed: true });
+				});
 
 			overlay
 				.querySelector("#aperture-btn-deny")
@@ -1218,7 +1275,7 @@ export class ApertureClient {
 	}
 }
 
-export function initAperture(options?: { port?: number; serverUrl?: string }) {
+export function initAperture(options?: { port?: number; serverUrl?: string; customTools?: Record<string, CustomToolDefinition> }) {
 	if (typeof window === "undefined") return;
 
 	const isDev =
@@ -1238,7 +1295,7 @@ export function initAperture(options?: { port?: number; serverUrl?: string }) {
 		existing.disconnect();
 	}
 
-	const client = new ApertureClient({ serverUrl });
+	const client = new ApertureClient({ serverUrl, customTools: options?.customTools });
 	client.connect();
 	(window as any).__apertureInstance__ = client;
 	return client;

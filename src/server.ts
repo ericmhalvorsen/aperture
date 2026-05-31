@@ -6,12 +6,19 @@ import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
 import { BROWSER_TOOLS, type BrowserToolName } from "./tools.js";
 
+interface ToolMetadata {
+	name: string;
+	description: string;
+	inputSchema: object;
+}
+
 interface BrowserSession {
 	ws: WebSocket;
 	url: string;
 	title: string;
 	approved: boolean;
 	capabilities: Set<string>;
+	customTools?: ToolMetadata[];
 }
 
 interface MCPRequest {
@@ -134,6 +141,7 @@ export class ApertureServer {
 			title: "",
 			approved: false,
 			capabilities: new Set(),
+			customTools: [],
 		};
 		this.sessions.set(sessionId, session);
 
@@ -143,6 +151,7 @@ export class ApertureServer {
 				if (msg.type === "register") {
 					session.url = msg.url;
 					session.title = msg.title;
+					session.customTools = msg.customTools || [];
 					console.error(
 						`[Aperture] Session ${sessionId.slice(0, 8)} registered: ${msg.title}`,
 					);
@@ -249,6 +258,10 @@ export class ApertureServer {
 		process.on("SIGINT", () => {
 			process.exit(0);
 		});
+
+		process.on("SIGTERM", () => {
+			process.exit(0);
+		});
 	}
 
 	private async handleMCPRequest(
@@ -287,7 +300,20 @@ export class ApertureServer {
 				name,
 				description: def.description,
 				inputSchema: def.inputSchema,
-			}));
+			})) as Array<ToolMetadata>;
+
+			const addedCustomTools = new Set<string>();
+			for (const session of this.sessions.values()) {
+				if (session.approved && session.customTools) {
+					for (const ct of session.customTools) {
+						if (!addedCustomTools.has(ct.name)) {
+							addedCustomTools.add(ct.name);
+							tools.push(ct);
+						}
+					}
+				}
+			}
+
 			send({ jsonrpc: "2.0", id: req.id, result: { tools } });
 			return;
 		}
@@ -311,8 +337,19 @@ export class ApertureServer {
 			const params = req.params as
 				| { name: string; arguments?: Record<string, unknown> }
 				| undefined;
-			const toolName = params?.name as BrowserToolName;
-			if (!toolName || !BROWSER_TOOLS[toolName]) {
+			const toolName = params?.name as string;
+			
+			let isValid = !!BROWSER_TOOLS[toolName as BrowserToolName];
+			if (!isValid) {
+				for (const session of this.sessions.values()) {
+					if (session.approved && session.customTools?.some(t => t.name === toolName)) {
+						isValid = true;
+						break;
+					}
+				}
+			}
+
+			if (!toolName || !isValid) {
 				send({
 					jsonrpc: "2.0",
 					id: req.id,

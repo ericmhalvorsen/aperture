@@ -43,13 +43,23 @@ export async function ensureApertureServer(port = 3456): Promise<void> {
 	serverStarting = true;
 	const binPath = getBinPath();
 
+	// Spawn in same process group (detached: false) so Ctrl+C propagates.
+	// stdio: "ignore" keeps logs clean; unref() lets parent exit normally.
 	const child = spawn("node", [binPath], {
-		detached: true,
 		stdio: "ignore",
 		env: { ...process.env, APERTURE_PORT: String(port) },
 	});
 
 	child.unref();
+
+	// Kill child when parent exits normally (prevents orphaned zombies).
+	process.on("exit", () => {
+		try {
+			child.kill();
+		} catch {
+			// ignore if already dead
+		}
+	});
 
 	// Wait a moment for it to bind
 	await new Promise((resolve) => setTimeout(resolve, 800));
