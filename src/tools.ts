@@ -178,6 +178,14 @@ export const BROWSER_TOOLS = {
 			},
 		},
 	},
+	browser_list_sessions: {
+		description:
+			"List all connected browser sessions with metadata (URL, title, approval status). Use this to choose which session to interact with when multiple tabs are connected.",
+		inputSchema: {
+			type: "object" as const,
+			properties: {},
+		},
+	},
 } as const;
 
 export type BrowserToolName = keyof typeof BROWSER_TOOLS;

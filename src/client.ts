@@ -89,7 +89,7 @@ function injectStyles() {
     #aperture-badge {
       position: fixed;
       bottom: 12px;
-      left: 12px;
+      right: 12px;
       z-index: 2147483646;
       display: flex;
       align-items: center;
@@ -106,7 +106,7 @@ function injectStyles() {
       color: rgba(255, 255, 255, 0.85);
       box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
       transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-      cursor: default;
+      cursor: pointer;
       user-select: none;
     }
 
@@ -547,11 +547,92 @@ export class ApertureClient {
 		injectStyles();
 		patchConsole();
 		patchFetch();
+		this.loadCachedApproval();
 
 		if (typeof window !== "undefined") {
 			window.addEventListener("beforeunload", () => {
 				this.stopScreenCapture();
 			});
+		}
+	}
+
+	private loadCachedApproval() {
+		if (typeof window === "undefined" || typeof localStorage === "undefined")
+			return;
+		try {
+			const approved = localStorage.getItem("aperture_approved");
+			const timestamp = localStorage.getItem("aperture_approved_at");
+			const storedTtl = localStorage.getItem("aperture_ttl_ms");
+			const defaultTtlMs = 60 * 60 * 1000; // 1 hour default
+			const ttlMs = storedTtl ? Number(storedTtl) : defaultTtlMs;
+
+			const isStale = timestamp ? Date.now() - Number(timestamp) > ttlMs : true;
+
+			if (approved === "true" && !isStale) {
+				this.approved = true;
+				this.denied = false;
+				this.capabilities = JSON.parse(
+					localStorage.getItem("aperture_capabilities") || "[]",
+				);
+			} else if (approved === "false") {
+				this.denied = true;
+				this.approved = false;
+			}
+
+			// Clear stale cache
+			if (isStale) {
+				localStorage.removeItem("aperture_approved");
+				localStorage.removeItem("aperture_approved_at");
+				localStorage.removeItem("aperture_capabilities");
+				localStorage.removeItem("aperture_ttl_ms");
+			}
+		} catch {
+			// ignore
+		}
+	}
+
+	private saveApproval(
+		approved: boolean,
+		capabilities: string[],
+		ttlMs?: number,
+	) {
+		if (typeof window === "undefined" || typeof localStorage === "undefined")
+			return;
+		try {
+			if (approved) {
+				localStorage.setItem("aperture_approved", "true");
+				localStorage.setItem("aperture_approved_at", String(Date.now()));
+				localStorage.setItem(
+					"aperture_capabilities",
+					JSON.stringify(capabilities),
+				);
+				if (ttlMs) {
+					localStorage.setItem("aperture_ttl_ms", String(ttlMs));
+				}
+			} else {
+				localStorage.setItem("aperture_approved", "false");
+				localStorage.removeItem("aperture_approved_at");
+				localStorage.removeItem("aperture_capabilities");
+				localStorage.removeItem("aperture_ttl_ms");
+			}
+		} catch {
+			// ignore
+		}
+	}
+
+	private revokeApproval() {
+		if (typeof window === "undefined" || typeof localStorage === "undefined")
+			return;
+		try {
+			localStorage.removeItem("aperture_approved");
+			localStorage.removeItem("aperture_approved_at");
+			localStorage.removeItem("aperture_capabilities");
+			localStorage.removeItem("aperture_ttl_ms");
+			this.approved = false;
+			this.denied = false;
+			this.capabilities = [];
+		} catch {
+			// ignore
 		}
 	}
 
@@ -570,6 +651,14 @@ export class ApertureClient {
 			});
 			console.log("[Aperture] Connected to server");
 			this.updateBadge("connected");
+
+			if (this.approved) {
+				this.send({
+					type: "approval",
+					approved: this.approved,
+					capabilities: this.capabilities,
+				});
+			}
 		};
 
 		this.ws.onmessage = async (event) => {
@@ -577,6 +666,19 @@ export class ApertureClient {
 				const msg = JSON.parse(event.data);
 				if (msg.type === "tool_call") {
 					await this.handleToolCall(msg);
+				} else if (msg.type === "agent_connected") {
+					if (!this.approved && !this.denied) {
+						const decision = await this.getApproval("MCP Agent");
+						this.approved = decision.approved;
+						this.denied = !decision.approved;
+						this.capabilities = decision.capabilities;
+						this.saveApproval(this.approved, this.capabilities, decision.ttlMs);
+						this.send({
+							type: "approval",
+							approved: this.approved,
+							capabilities: this.capabilities,
+						});
+					}
 				}
 			} catch {
 				// ignore
@@ -615,6 +717,7 @@ export class ApertureClient {
 		if (!this.badgeElement) {
 			this.badgeElement = document.createElement("div");
 			this.badgeElement.id = "aperture-badge";
+			this.badgeElement.title = "Manage Aperture session";
 
 			const dot = document.createElement("span");
 			dot.className = "dot";
@@ -623,6 +726,9 @@ export class ApertureClient {
 
 			this.badgeElement.appendChild(dot);
 			this.badgeElement.appendChild(text);
+			this.badgeElement.addEventListener("click", () => {
+				this.showStatusDialog();
+			});
 			document.body.appendChild(this.badgeElement);
 		}
 
@@ -652,6 +758,7 @@ export class ApertureClient {
 			this.approved = decision.approved;
 			this.denied = !decision.approved;
 			this.capabilities = decision.capabilities;
+			this.saveApproval(this.approved, this.capabilities, decision.ttlMs);
 			this.send({
 				type: "approval",
 				approved: this.approved,
@@ -692,7 +799,7 @@ export class ApertureClient {
 
 	private async getApproval(
 		agentName: string,
-	): Promise<{ approved: boolean; capabilities: string[] }> {
+	): Promise<{ approved: boolean; capabilities: string[]; ttlMs?: number }> {
 		if (this.config.onApprovalRequest) {
 			return this.config.onApprovalRequest(agentName);
 		}
@@ -701,7 +808,7 @@ export class ApertureClient {
 
 	private showVanillaApprovalDialog(
 		agentName: string,
-	): Promise<{ approved: boolean; capabilities: string[] }> {
+	): Promise<{ approved: boolean; capabilities: string[]; ttlMs?: number }> {
 		return new Promise((resolve) => {
 			if (typeof document === "undefined") {
 				resolve({ approved: false, capabilities: [] });
@@ -747,7 +854,15 @@ export class ApertureClient {
                 <div class="aperture-checkbox-desc">Enables arbitrary JS execution in this page (dangerous)</div>
               </div>
             </label>
-            
+
+            <label class="aperture-checkbox-label">
+              <input type="checkbox" id="aperture-remember-24h" />
+              <div>
+                <strong>Trust this device for 24 hours</strong>
+                <div class="aperture-checkbox-desc">Otherwise approval resets after 1 hour</div>
+              </div>
+            </label>
+
             <div id="aperture-eval-warning" class="aperture-warning-box">
               ⚠️ Warning: Allowing evaluation lets the agent run any command or access any sensitive data on this origin.
             </div>
@@ -803,6 +918,11 @@ export class ApertureClient {
 						) as HTMLInputElement
 					).checked;
 					const allowEval = evalCheckbox.checked;
+					const remember24h = (
+						overlay.querySelector("#aperture-remember-24h") as HTMLInputElement
+					).checked;
+
+					const ttlMs = remember24h ? 24 * 60 * 60 * 1000 : 60 * 60 * 1000;
 
 					const capabilities = ["console", "dom", "network", "storage"];
 					if (allowEval) capabilities.push("evaluate");
@@ -826,7 +946,7 @@ export class ApertureClient {
 					}
 
 					cleanup();
-					resolve({ approved: true, capabilities });
+					resolve({ approved: true, capabilities, ttlMs });
 				});
 		});
 	}
@@ -884,27 +1004,268 @@ export class ApertureClient {
 	setMediaStream(stream: MediaStream) {
 		this.screenCaptureStream = stream;
 	}
+
+	private showStatusDialog() {
+		if (typeof document === "undefined") return;
+		if (document.getElementById("aperture-dialog-overlay")) return;
+
+		const overlay = document.createElement("div");
+		overlay.id = "aperture-dialog-overlay";
+
+		const connectionStatus =
+			this.ws && this.ws.readyState === WebSocket.OPEN
+				? "Connected"
+				: "Disconnected";
+		const sessionStatus = this.denied
+			? "Denied"
+			: this.approved
+				? "Approved"
+				: "Pending Approval";
+
+		const hasScreenshot = this.capabilities.includes("screenshot");
+		const hasEval = this.capabilities.includes("evaluate");
+
+		const footerHtml = this.approved
+			? `
+            <button id="aperture-status-btn-revoke" class="aperture-btn aperture-btn-deny" style="flex: 1.5;">Revoke Session</button>
+            <button id="aperture-status-btn-close" class="aperture-btn aperture-btn-allow" style="flex: 1;">Close</button>
+			`
+			: `
+            <button id="aperture-status-btn-deny" class="aperture-btn aperture-btn-deny">Deny</button>
+            <button id="aperture-status-btn-allow" class="aperture-btn aperture-btn-allow">Allow for this session</button>
+			`;
+
+		overlay.innerHTML = `
+        <div id="aperture-dialog">
+          <div class="aperture-header">
+            <div class="aperture-icon">⚙️</div>
+            <div class="aperture-title-container">
+              <h3 class="aperture-title">Aperture Settings</h3>
+              <p class="aperture-subtitle">Local agent session management</p>
+            </div>
+          </div>
+          
+          <div class="aperture-body">
+            <div style="margin-bottom: 12px; display: flex; justify-content: space-between; font-size: 13px;">
+              <span>Server Connection:</span>
+              <strong style="color: ${connectionStatus === "Connected" ? "#10b981" : "#ef4444"};">${connectionStatus}</strong>
+            </div>
+            <div style="margin-bottom: 16px; display: flex; justify-content: space-between; font-size: 13px;">
+              <span>Session Status:</span>
+              <strong style="color: ${sessionStatus === "Approved" ? "#10b981" : sessionStatus === "Denied" ? "#ef4444" : "#f59e0b"};">${sessionStatus}</strong>
+            </div>
+
+            <div class="aperture-options" style="margin-top: 12px; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 12px;">
+              <label class="aperture-checkbox-label">
+                <input type="checkbox" id="aperture-status-screenshot" ${hasScreenshot ? "checked" : ""} />
+                <div>
+                  <strong>Allow screenshot capture</strong>
+                  <div class="aperture-checkbox-desc">Requests browser tab/screen sharing for live views</div>
+                </div>
+              </label>
+              
+              <label class="aperture-checkbox-label">
+                <input type="checkbox" id="aperture-status-eval" ${hasEval ? "checked" : ""} />
+                <div>
+                  <strong>Allow JavaScript evaluation</strong>
+                  <div class="aperture-checkbox-desc">Enables arbitrary JS execution in this page (dangerous)</div>
+                </div>
+              </label>
+            </div>
+          </div>
+          
+          <div class="aperture-footer">
+            ${footerHtml}
+          </div>
+        </div>
+      `;
+
+		document.body.appendChild(overlay);
+
+		setTimeout(() => {
+			overlay.classList.add("active");
+		}, 10);
+
+		const cleanup = () => {
+			overlay.classList.remove("active");
+			setTimeout(() => {
+				overlay.remove();
+			}, 300);
+		};
+
+		if (this.approved) {
+			overlay
+				.querySelector("#aperture-status-btn-close")
+				?.addEventListener("click", cleanup);
+
+			overlay
+				.querySelector("#aperture-status-btn-revoke")
+				?.addEventListener("click", () => {
+					this.revokeApproval();
+					this.stopScreenCapture();
+					this.send({
+						type: "approval",
+						approved: false,
+						capabilities: [],
+					});
+					cleanup();
+				});
+
+			const screenshotCheckbox = overlay.querySelector(
+				"#aperture-status-screenshot",
+			) as HTMLInputElement;
+			const evalCheckbox = overlay.querySelector(
+				"#aperture-status-eval",
+			) as HTMLInputElement;
+
+			screenshotCheckbox?.addEventListener("change", async () => {
+				if (screenshotCheckbox.checked) {
+					try {
+						const stream = await navigator.mediaDevices.getDisplayMedia({
+							video: { displaySurface: "browser" },
+							audio: false,
+						});
+						this.screenCaptureStream = stream;
+						if (!this.capabilities.includes("screenshot")) {
+							this.capabilities.push("screenshot");
+						}
+					} catch (err) {
+						screenshotCheckbox.checked = false;
+					}
+				} else {
+					this.stopScreenCapture();
+					this.capabilities = this.capabilities.filter(
+						(c) => c !== "screenshot",
+					);
+				}
+				this.saveApproval(this.approved, this.capabilities);
+				this.send({
+					type: "approval",
+					approved: this.approved,
+					capabilities: this.capabilities,
+				});
+			});
+
+			evalCheckbox?.addEventListener("change", () => {
+				if (evalCheckbox.checked) {
+					if (!this.capabilities.includes("evaluate")) {
+						this.capabilities.push("evaluate");
+					}
+				} else {
+					this.capabilities = this.capabilities.filter((c) => c !== "evaluate");
+				}
+				this.saveApproval(this.approved, this.capabilities);
+				this.send({
+					type: "approval",
+					approved: this.approved,
+					capabilities: this.capabilities,
+				});
+			});
+		} else {
+			overlay
+				.querySelector("#aperture-status-btn-deny")
+				?.addEventListener("click", () => {
+					this.approved = false;
+					this.denied = true;
+					this.capabilities = [];
+					this.saveApproval(false, []);
+					this.send({
+						type: "approval",
+						approved: false,
+						capabilities: [],
+					});
+					cleanup();
+				});
+
+			overlay
+				.querySelector("#aperture-status-btn-allow")
+				?.addEventListener("click", async () => {
+					const screenshotCheckbox = overlay.querySelector(
+						"#aperture-status-screenshot",
+					) as HTMLInputElement;
+					const evalCheckbox = overlay.querySelector(
+						"#aperture-status-eval",
+					) as HTMLInputElement;
+
+					const capabilities = ["console", "dom", "network", "storage"];
+					if (evalCheckbox.checked) capabilities.push("evaluate");
+
+					if (screenshotCheckbox.checked) {
+						try {
+							const stream = await navigator.mediaDevices.getDisplayMedia({
+								video: { displaySurface: "browser" },
+								audio: false,
+							});
+							this.screenCaptureStream = stream;
+							capabilities.push("screenshot");
+						} catch (err) {
+							// ignore or keep screenshot off
+						}
+					}
+
+					this.approved = true;
+					this.denied = false;
+					this.capabilities = capabilities;
+					this.saveApproval(true, this.capabilities);
+					this.send({
+						type: "approval",
+						approved: true,
+						capabilities: this.capabilities,
+					});
+					cleanup();
+				});
+		}
+	}
+}
+
+export function initAperture(options?: { port?: number; serverUrl?: string }) {
+	if (typeof window === "undefined") return;
+
+	const isDev =
+		location.hostname === "localhost" ||
+		location.hostname === "127.0.0.1" ||
+		location.hostname.endsWith(".localhost") ||
+		!!(window as any).__vite_inject__;
+
+	if (!isDev) return;
+
+	const port = options?.port || (window as any).__APERTURE_PORT__ || 3456;
+	const serverUrl = options?.serverUrl || `ws://localhost:${port}`;
+
+	// Disconnect existing instance if any
+	const existing = (window as any).__apertureInstance__;
+	if (existing && typeof existing.disconnect === "function") {
+		existing.disconnect();
+	}
+
+	const client = new ApertureClient({ serverUrl });
+	client.connect();
+	(window as any).__apertureInstance__ = client;
+	return client;
 }
 
 // Auto-connect if running in browser and not already connected
 if (typeof window !== "undefined") {
-	const serverUrl = (window as any).__APERTURE_URL__ || "ws://localhost:3456";
-
-	// Only auto-connect in dev mode (heuristic: localhost or Vite HMR present)
+	// Only auto-connect in dev mode
 	const isDev =
 		location.hostname === "localhost" ||
 		location.hostname === "127.0.0.1" ||
+		location.hostname.endsWith(".localhost") ||
 		!!(window as any).__vite_inject__;
 
 	if (isDev) {
 		// Defer to check if manual initialization occurs
 		setTimeout(() => {
 			if (!(window as any).__apertureInstance__) {
+				const port = (window as any).__APERTURE_PORT__ || 3456;
+				const serverUrl =
+					(window as any).__APERTURE_URL__ || `ws://localhost:${port}`;
 				console.log(
 					"[Aperture] No manual initialization detected. Auto-connecting...",
 				);
 				const client = new ApertureClient({ serverUrl });
 				client.connect();
+				(window as any).__apertureInstance__ = client;
 			}
 		}, 500);
 	}

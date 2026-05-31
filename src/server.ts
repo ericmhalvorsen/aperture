@@ -33,18 +33,46 @@ export class ApertureServer {
 	private sessions: Map<string, BrowserSession> = new Map();
 	private mcpClients: Set<WebSocket> = new Set();
 	private pendingRequests: Map<string, (result: any) => void> = new Map();
+	private mcpInitialized = false;
 
 	private port: number;
 
 	constructor(port = 3456) {
 		this.port = port;
 		const server = createServer(async (req, res) => {
+			// HTTP JSON-RPC endpoint for MCP clients that connect via HTTP instead of stdio
+			if (req.method === "POST" && req.url === "/mcp") {
+				let body = "";
+				req.on("data", (chunk) => {
+					body += chunk;
+				});
+				req.on("end", async () => {
+					try {
+						const reqData = JSON.parse(body) as MCPRequest;
+						await this.handleMCPRequest(reqData, (response) => {
+							res.writeHead(200, { "Content-Type": "application/json" });
+							res.end(JSON.stringify(response));
+						});
+					} catch {
+						res.writeHead(400, { "Content-Type": "application/json" });
+						res.end(
+							JSON.stringify({
+								jsonrpc: "2.0",
+								id: null,
+								error: { code: -32700, message: "Parse error" },
+							}),
+						);
+					}
+				});
+				return;
+			}
+
 			if (req.url === "/aperture.js") {
 				try {
 					const fileUrl = new URL(import.meta.url);
 					const __dirname = path.dirname(fileURLToPath(fileUrl));
 					let clientPath = path.join(__dirname, "client.js");
-					
+
 					// Resolve path dynamically under vitest/ts-node or production
 					try {
 						await fs.access(clientPath);
@@ -119,6 +147,10 @@ export class ApertureServer {
 						`[Aperture] Session ${sessionId.slice(0, 8)} registered: ${msg.title}`,
 					);
 					ws.send(JSON.stringify({ type: "registered", sessionId }));
+
+					if (this.mcpInitialized) {
+						ws.send(JSON.stringify({ type: "agent_connected" }));
+					}
 				}
 				if (msg.type === "approval") {
 					session.approved = msg.approved;
@@ -224,6 +256,14 @@ export class ApertureServer {
 		send: (res: MCPResponse) => void,
 	) {
 		if (req.method === "initialize") {
+			this.mcpInitialized = true;
+			const agentConnectedMsg = JSON.stringify({ type: "agent_connected" });
+			this.sessions.forEach((session) => {
+				if (session.ws.readyState === WebSocket.OPEN) {
+					session.ws.send(agentConnectedMsg);
+				}
+			});
+
 			send({
 				jsonrpc: "2.0",
 				id: req.id,
@@ -252,6 +292,21 @@ export class ApertureServer {
 			return;
 		}
 
+		if (
+			req.method === "tools/call" &&
+			(req.params as any)?.name === "browser_list_sessions"
+		) {
+			const sessions = Array.from(this.sessions.entries()).map(([id, s]) => ({
+				sessionId: id,
+				url: s.url,
+				title: s.title,
+				approved: s.approved,
+				capabilities: Array.from(s.capabilities),
+			}));
+			send({ jsonrpc: "2.0", id: req.id, result: { sessions } });
+			return;
+		}
+
 		if (req.method === "tools/call") {
 			const params = req.params as
 				| { name: string; arguments?: Record<string, unknown> }
@@ -266,17 +321,36 @@ export class ApertureServer {
 				return;
 			}
 
-			const session = this.getApprovedSession();
+			const args = (params?.arguments || {}) as Record<string, unknown>;
+			const session = this.getApprovedSession(
+				args.sessionId as string | undefined,
+			);
 			if (!session) {
-				send({
-					jsonrpc: "2.0",
-					id: req.id,
-					error: {
-						code: -32000,
-						message:
-							"No approved browser session. Ask the user to enable aperture in their dev session.",
-					},
-				});
+				// Check if there are multiple approved sessions
+				const approvedSessions = Array.from(this.sessions.values()).filter(
+					(s) => s.approved && s.ws.readyState === WebSocket.OPEN,
+				);
+				if (approvedSessions.length > 1) {
+					send({
+						jsonrpc: "2.0",
+						id: req.id,
+						error: {
+							code: -32000,
+							message:
+								"Multiple approved browser sessions are connected. Use browser_list_sessions to get sessionIds, then pass sessionId in subsequent tool calls.",
+						},
+					});
+				} else {
+					send({
+						jsonrpc: "2.0",
+						id: req.id,
+						error: {
+							code: -32000,
+							message:
+								"No approved browser session. Ask the user to enable aperture in their dev session.",
+						},
+					});
+				}
 				return;
 			}
 
@@ -332,13 +406,29 @@ export class ApertureServer {
 		});
 	}
 
-	private getApprovedSession(): BrowserSession | undefined {
-		for (const session of this.sessions.values()) {
-			if (session.ws.readyState === WebSocket.OPEN) {
+	private getApprovedSession(sessionId?: string): BrowserSession | undefined {
+		// Specific session requested
+		if (sessionId) {
+			const session = this.sessions.get(sessionId);
+			if (
+				session &&
+				session.approved &&
+				session.ws.readyState === WebSocket.OPEN
+			) {
 				return session;
 			}
+			return undefined;
 		}
-		return undefined;
+
+		// Return the sole approved session, or undefined if multiple/none
+		let found: BrowserSession | undefined;
+		for (const session of this.sessions.values()) {
+			if (session.approved && session.ws.readyState === WebSocket.OPEN) {
+				if (found) return undefined; // Multiple approved sessions — must specify sessionId
+				found = session;
+			}
+		}
+		return found;
 	}
 
 	private waitForBrowserResult(

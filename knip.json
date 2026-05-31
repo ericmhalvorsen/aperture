@@ -1,0 +1,15 @@
+{
+	"$schema": "https://unpkg.com/knip@5/schema.json",
+	"entry": [
+		"src/index.ts",
+		"src/bin.ts",
+		"src/client.ts",
+		"src/react.tsx",
+		"src/register.ts",
+		"src/server.ts",
+		"src/stdio-bridge.ts",
+		"src/frameworks/next.ts",
+		"src/frameworks/vite.ts"
+	],
+	"project": ["src/**/*.{ts,tsx}", "tests/**/*.ts"]
+}

@@ -2,7 +2,7 @@
 
 NOTE FROM ERIC: Gargoyle is my runner up, the image of high perch matches the browser and its goofy
 
-> Shortlist of names for the `@promptuary/browser-bridge` package. Goal: memorable, slightly unexpected, hints at "an agent looking into a browser."
+> Shortlist of names for the `aperture` package. Goal: memorable, slightly unexpected, hints at "an agent looking into a browser."
 
 ## Top Tier
 

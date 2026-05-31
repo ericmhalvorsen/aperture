@@ -5,15 +5,12 @@
 		"moduleResolution": "NodeNext",
 		"lib": ["ES2022", "DOM"],
 		"strict": true,
-		"noEmit": false,
-		"declaration": true,
-		"outDir": "./dist",
-		"rootDir": "./src",
+		"noEmit": true,
 		"esModuleInterop": true,
 		"skipLibCheck": true,
 		"jsx": "react-jsx",
 		"types": ["node", "ws"]
 	},
-	"include": ["src/**/*"],
+	"include": ["src/**/*", "tests/**/*"],
 	"exclude": ["node_modules", "dist"]
 }

@@ -1,7 +1,7 @@
-import { describe, test, expect, beforeAll, afterAll } from "vitest";
-import { ApertureServer } from "../src/server.js";
-import { WebSocket } from "ws";
 import http from "http";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { WebSocket } from "ws";
+import { ApertureServer } from "../src/server.js";
 
 describe("ApertureServer", () => {
 	let server: ApertureServer;
@@ -21,30 +21,36 @@ describe("ApertureServer", () => {
 
 	test("serves aperture.js over HTTP", async () => {
 		return new Promise<void>((resolve, reject) => {
-			http.get(`http://localhost:${port}/aperture.js`, (res) => {
-				expect(res.statusCode).toBe(200);
-				expect(res.headers["content-type"]).toContain("application/javascript");
-				
-				let body = "";
-				res.on("data", (chunk) => { body += chunk; });
-				res.on("end", () => {
-					expect(body).toContain("class ApertureClient");
-					resolve();
-				});
-			}).on("error", reject);
+			http
+				.get(`http://localhost:${port}/aperture.js`, (res) => {
+					expect(res.statusCode).toBe(200);
+					expect(res.headers["content-type"]).toContain(
+						"application/javascript",
+					);
+
+					let body = "";
+					res.on("data", (chunk) => {
+						body += chunk;
+					});
+					res.on("end", () => {
+						expect(body).toContain("class ApertureClient");
+						resolve();
+					});
+				})
+				.on("error", reject);
 		});
 	});
 
 	test("allows WebSocket connections on /mcp", async () => {
 		return new Promise<void>((resolve, reject) => {
 			const ws = new WebSocket(`ws://localhost:${port}/mcp?type=browser`);
-			
+
 			ws.on("open", () => {
 				expect(ws.readyState).toBe(WebSocket.OPEN);
 				ws.close();
 				resolve();
 			});
-			
+
 			ws.on("error", (err) => {
 				reject(err);
 			});
@@ -54,13 +60,15 @@ describe("ApertureServer", () => {
 	test("handles browser registration", async () => {
 		return new Promise<void>((resolve, reject) => {
 			const ws = new WebSocket(`ws://localhost:${port}/mcp?type=browser`);
-			
+
 			ws.on("open", () => {
-				ws.send(JSON.stringify({
-					type: "register",
-					url: "http://example.com/test",
-					title: "Test Page"
-				}));
+				ws.send(
+					JSON.stringify({
+						type: "register",
+						url: "http://example.com/test",
+						title: "Test Page",
+					}),
+				);
 			});
 
 			ws.on("message", (data) => {
@@ -75,7 +83,7 @@ describe("ApertureServer", () => {
 					reject(err);
 				}
 			});
-			
+
 			ws.on("error", (err) => {
 				reject(err);
 			});

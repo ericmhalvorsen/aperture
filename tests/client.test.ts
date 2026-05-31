@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { ApertureClient } from "../src/client.js";
 
 // Mock WebSocket globally since jsdom does not include it
@@ -50,9 +50,9 @@ describe("ApertureClient", () => {
 		(window as any).WebSocket = originalWebSocket;
 		(global as any).WebSocket = originalWebSocket;
 		(globalThis as any).WebSocket = originalWebSocket;
-		
+
 		window.fetch = originalFetch;
-		
+
 		const styles = document.getElementById("aperture-styles");
 		styles?.remove();
 		const badge = document.getElementById("aperture-badge");
@@ -95,7 +95,7 @@ describe("ApertureClient", () => {
 
 	test("clicks elements in DOM", async () => {
 		const client = new ApertureClient({ serverUrl: "ws://localhost:3456" });
-		
+
 		const btn = document.createElement("button");
 		btn.id = "test-btn";
 		let clicked = false;
@@ -124,7 +124,7 @@ describe("ApertureClient", () => {
 
 	test("types text in input", async () => {
 		const client = new ApertureClient({ serverUrl: "ws://localhost:3456" });
-		
+
 		const input = document.createElement("input");
 		input.id = "test-input";
 		document.body.appendChild(input);
@@ -144,11 +144,12 @@ describe("ApertureClient", () => {
 	});
 
 	test("persists denial state", async () => {
-		const client = new ApertureClient({ 
+		const client = new ApertureClient({
 			serverUrl: "ws://localhost:3456",
-			onApprovalRequest: () => Promise.resolve({ approved: false, capabilities: [] })
+			onApprovalRequest: () =>
+				Promise.resolve({ approved: false, capabilities: [] }),
 		});
-		
+
 		client.connect();
 		await new Promise((resolve) => setTimeout(resolve, 15));
 
@@ -164,7 +165,7 @@ describe("ApertureClient", () => {
 
 		// Second call rejects immediately without calling approval dialog
 		const approvalSpy = vi.spyOn(client as any, "getApproval");
-		
+
 		await (client as any).handleToolCall({
 			requestId: "req-4",
 			tool: "browser_console_logs",
