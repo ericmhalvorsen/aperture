@@ -32,6 +32,17 @@ No extensions. No CORS hacks. Auto-connect your local dev browser to Claude Code
 npm install -D @halvo/aperture
 ```
 
+## Try It Out
+
+We've included a barebones Next.js sample app with Aperture (and a custom tool) pre-configured. You can run it with a single command from this repository:
+
+```bash
+pnpm install
+pnpm run example
+```
+
+Then visit `http://localhost:3000` to see the Aperture badge, and connect your favorite MCP client!
+
 ## Quick Start
 
 ### 1. Start the Server (Dev Sidecar)

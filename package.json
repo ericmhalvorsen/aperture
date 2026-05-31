@@ -24,7 +24,8 @@
 		"changeset": "changeset",
 		"version-packages": "changeset version",
 		"release": "pnpm build && changeset publish",
-		"publint": "publint"
+		"publint": "publint",
+		"example": "cd samples/next-aperture && pnpm run dev"
 	},
 	"dependencies": {
 		"ws": "^8"

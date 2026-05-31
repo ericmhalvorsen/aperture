@@ -93,6 +93,69 @@ function injectStyles() {
 	const style = document.createElement("style");
 	style.id = styleId;
 	style.textContent = `
+    /* Aperture — self-contained dev-tool overlay styles.
+       Uses CSS custom properties so the dialog adapts to the host
+       page's color-scheme preference while remaining isolated. */
+
+    :root {
+      --ap-bg: #0f0f10;
+      --ap-bg-glass: rgba(15, 15, 16, 0.92);
+      --ap-border: rgba(255, 255, 255, 0.10);
+      --ap-text: #f3f4f6;
+      --ap-text-secondary: #9ca3af;
+      --ap-text-muted: #6b7280;
+      --ap-accent: #6366f1;
+      --ap-accent-hover: #4f46e5;
+      --ap-btn-deny-bg: rgba(255, 255, 255, 0.06);
+      --ap-btn-deny-border: rgba(255, 255, 255, 0.12);
+      --ap-btn-deny-text: #d1d5db;
+      --ap-warning-bg: rgba(239, 68, 68, 0.10);
+      --ap-warning-border: rgba(239, 68, 68, 0.25);
+      --ap-warning-text: #fca5a5;
+      --ap-shadow: 0 24px 64px rgba(0, 0, 0, 0.50);
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        --ap-bg: #ffffff;
+        --ap-bg-glass: rgba(255, 255, 255, 0.96);
+        --ap-border: rgba(0, 0, 0, 0.10);
+        --ap-text: #111827;
+        --ap-text-secondary: #4b5563;
+        --ap-text-muted: #9ca3af;
+        --ap-btn-deny-bg: rgba(0, 0, 0, 0.04);
+        --ap-btn-deny-border: rgba(0, 0, 0, 0.10);
+        --ap-btn-deny-text: #374151;
+        --ap-warning-bg: rgba(239, 68, 68, 0.06);
+        --ap-warning-border: rgba(239, 68, 68, 0.18);
+        --ap-warning-text: #b91c1c;
+        --ap-shadow: 0 24px 64px rgba(0, 0, 0, 0.15);
+      }
+    }
+
+    #aperture-badge,
+    #aperture-dialog-overlay,
+    #aperture-dialog,
+    #aperture-dialog .aperture-header,
+    #aperture-dialog .aperture-icon,
+    #aperture-dialog .aperture-title-container,
+    #aperture-dialog .aperture-title,
+    #aperture-dialog .aperture-subtitle,
+    #aperture-dialog .aperture-body,
+    #aperture-dialog .aperture-list,
+    #aperture-dialog .aperture-list li,
+    #aperture-dialog .aperture-options,
+    #aperture-dialog .aperture-checkbox-label,
+    #aperture-dialog .aperture-checkbox-label input,
+    #aperture-dialog .aperture-checkbox-desc,
+    #aperture-dialog .aperture-warning-box,
+    #aperture-dialog .aperture-footer,
+    #aperture-dialog .aperture-btn {
+      all: initial;
+      box-sizing: border-box;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
     #aperture-badge {
       position: fixed;
       bottom: 12px;
@@ -103,25 +166,22 @@ function injectStyles() {
       gap: 8px;
       padding: 6px 12px;
       border-radius: 20px;
-      background: rgba(18, 18, 18, 0.75);
+      background: var(--ap-bg-glass);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      font-family: system-ui, -apple-system, sans-serif;
+      border: 1px solid var(--ap-border);
+      color: var(--ap-text);
       font-size: 11px;
       font-weight: 500;
-      color: rgba(255, 255, 255, 0.85);
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: var(--ap-shadow);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
       cursor: pointer;
       user-select: none;
     }
 
     #aperture-badge:hover {
-      background: rgba(28, 28, 28, 0.85);
-      border-color: rgba(255, 255, 255, 0.15);
       transform: translateY(-2px);
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.30);
     }
 
     #aperture-badge .dot {
@@ -155,35 +215,35 @@ function injectStyles() {
 
     #aperture-dialog-overlay {
       position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0, 0, 0, 0.4);
-      backdrop-filter: blur(4px);
-      -webkit-backdrop-filter: blur(4px);
+      inset: 0;
+      background: rgba(0, 0, 0, 0.45);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
       z-index: 2147483647;
       display: flex;
       align-items: center;
       justify-content: center;
       opacity: 0;
       transition: opacity 0.2s ease;
-      font-family: system-ui, -apple-system, sans-serif;
+      color-scheme: light dark;
     }
 
     #aperture-dialog {
-      background: rgba(22, 22, 22, 0.85);
+      background: var(--ap-bg-glass);
       backdrop-filter: blur(20px);
       -webkit-backdrop-filter: blur(20px);
-      border: 1px solid rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--ap-border);
       border-radius: 16px;
-      width: 380px;
-      max-width: 90vw;
-      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+      width: 400px;
+      max-width: 92vw;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: var(--ap-shadow);
       padding: 24px;
-      color: #f3f4f6;
-      transform: scale(0.95);
-      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      color: var(--ap-text);
+      transform: scale(0.96);
+      transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      line-height: 1.5;
     }
 
     #aperture-dialog-overlay.active {
@@ -194,144 +254,157 @@ function injectStyles() {
       transform: scale(1);
     }
 
-    .aperture-header {
+    #aperture-dialog .aperture-header {
       display: flex;
       align-items: center;
       gap: 14px;
       margin-bottom: 20px;
     }
 
-    .aperture-icon {
+    #aperture-dialog .aperture-icon {
       width: 42px;
       height: 42px;
       border-radius: 12px;
-      background: linear-gradient(135deg, #6366f1, #4f46e5);
+      background: linear-gradient(135deg, var(--ap-accent), var(--ap-accent-hover));
       display: flex;
       align-items: center;
       justify-content: center;
       font-size: 20px;
-      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+      line-height: 1;
+      flex-shrink: 0;
     }
 
-    .aperture-title-container {
+    #aperture-dialog .aperture-title-container {
       display: flex;
       flex-direction: column;
     }
 
-    .aperture-title {
+    #aperture-dialog .aperture-title {
       font-size: 16px;
       font-weight: 600;
-      color: #fff;
+      color: var(--ap-text);
       margin: 0;
     }
 
-    .aperture-subtitle {
+    #aperture-dialog .aperture-subtitle {
       font-size: 12px;
-      color: #9ca3af;
+      color: var(--ap-text-secondary);
       margin: 2px 0 0 0;
     }
 
-    .aperture-body {
+    #aperture-dialog .aperture-body {
       font-size: 13px;
-      line-height: 1.5;
-      color: #d1d5db;
+      color: var(--ap-text-secondary);
       margin-bottom: 20px;
     }
 
-    .aperture-list {
-      margin: 8px 0 0 16px;
+    #aperture-dialog .aperture-list {
+      margin: 8px 0 0 18px;
       padding: 0;
-      color: #9ca3af;
+      color: var(--ap-text-muted);
+      list-style-type: disc;
     }
 
-    .aperture-list li {
-      margin-bottom: 4px;
+    #aperture-dialog .aperture-list li {
+      margin-bottom: 5px;
+      font-size: 12px;
     }
 
-    .aperture-options {
+    #aperture-dialog .aperture-options {
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 14px;
       margin-bottom: 20px;
-      border-top: 1px solid rgba(255, 255, 255, 0.06);
-      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      border-top: 1px solid var(--ap-border);
+      border-bottom: 1px solid var(--ap-border);
       padding: 16px 0;
     }
 
-    .aperture-checkbox-label {
+    #aperture-dialog .aperture-checkbox-label {
       display: flex;
       align-items: flex-start;
       gap: 10px;
       font-size: 13px;
-      color: #d1d5db;
+      color: var(--ap-text);
       cursor: pointer;
       user-select: none;
+      line-height: 1.4;
     }
 
-    .aperture-checkbox-label input {
-      margin-top: 3px;
-      accent-color: #6366f1;
-    }
-
-    .aperture-checkbox-desc {
-      font-size: 11px;
-      color: #9ca3af;
+    #aperture-dialog .aperture-checkbox-label input[type="checkbox"] {
       margin-top: 2px;
+      width: 16px;
+      height: 16px;
+      accent-color: var(--ap-accent);
+      cursor: pointer;
+      flex-shrink: 0;
     }
 
-    .aperture-warning-box {
-      background: rgba(239, 68, 68, 0.08);
-      border: 1px solid rgba(239, 68, 68, 0.2);
+    #aperture-dialog .aperture-checkbox-desc {
+      font-size: 11px;
+      color: var(--ap-text-muted);
+      margin-top: 2px;
+      display: block;
+      line-height: 1.35;
+    }
+
+    #aperture-dialog .aperture-warning-box {
+      background: var(--ap-warning-bg);
+      border: 1px solid var(--ap-warning-border);
       border-radius: 8px;
       padding: 10px 12px;
       margin-top: 6px;
-      margin-left: 24px;
+      margin-left: 26px;
       font-size: 12px;
-      color: #fca5a5;
+      color: var(--ap-warning-text);
       display: none;
+      line-height: 1.4;
     }
 
-    .aperture-warning-box.visible {
+    #aperture-dialog .aperture-warning-box.visible {
       display: block;
     }
 
-    .aperture-footer {
+    #aperture-dialog .aperture-footer {
       display: flex;
-      gap: 12px;
+      gap: 10px;
       justify-content: flex-end;
+      flex-wrap: wrap;
     }
 
-    .aperture-btn {
-      padding: 8px 16px;
+    #aperture-dialog .aperture-btn {
+      padding: 8px 14px;
       font-size: 13px;
       font-weight: 500;
       border-radius: 8px;
       cursor: pointer;
-      transition: all 0.2s ease;
-      border: none;
-      font-family: inherit;
+      transition: all 0.15s ease;
+      border: 1px solid transparent;
+      white-space: nowrap;
+      line-height: 1;
     }
 
-    .aperture-btn-deny {
-      background: rgba(255, 255, 255, 0.05);
-      color: #d1d5db;
-      border: 1px solid rgba(255, 255, 255, 0.08);
+    #aperture-dialog .aperture-btn-deny {
+      background: var(--ap-btn-deny-bg);
+      color: var(--ap-btn-deny-text);
+      border-color: var(--ap-btn-deny-border);
     }
 
-    .aperture-btn-deny:hover {
-      background: rgba(255, 255, 255, 0.1);
+    #aperture-dialog .aperture-btn-deny:hover {
+      background: var(--ap-btn-deny-text);
+      color: var(--ap-bg);
+      border-color: var(--ap-btn-deny-text);
+    }
+
+    #aperture-dialog .aperture-btn-allow {
+      background: linear-gradient(135deg, var(--ap-accent), var(--ap-accent-hover));
       color: #fff;
+      border-color: transparent;
     }
 
-    .aperture-btn-allow {
-      background: linear-gradient(135deg, #6366f1, #4f46e5);
-      color: #fff;
-      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2);
-    }
-
-    .aperture-btn-allow:hover {
+    #aperture-dialog .aperture-btn-allow:hover {
       transform: translateY(-1px);
-      box-shadow: 0 6px 16px rgba(79, 70, 229, 0.35);
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
     }
   `;
 	document.head.appendChild(style);
