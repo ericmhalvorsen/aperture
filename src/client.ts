@@ -338,6 +338,8 @@ function injectStyles() {
       accent-color: var(--ap-accent);
       cursor: pointer;
       flex-shrink: 0;
+      appearance: auto;
+      -webkit-appearance: checkbox;
     }
 
     #aperture-dialog .aperture-checkbox-desc {
@@ -628,11 +630,69 @@ export class ApertureClient {
 		patchConsole();
 		patchFetch();
 		this.loadCachedApproval();
+		this.registerKeyboardShortcut();
 
 		if (typeof window !== "undefined") {
 			window.addEventListener("beforeunload", () => {
 				this.stopScreenCapture();
 			});
+		}
+	}
+
+	private registerKeyboardShortcut() {
+		if (typeof document === "undefined") return;
+		document.addEventListener("keydown", (e) => {
+			const isMac = navigator.platform.toLowerCase().includes("mac");
+			const mod = isMac ? e.metaKey : e.ctrlKey;
+			if (mod && e.shiftKey && (e.key === "a" || e.key === "A")) {
+				e.preventDefault();
+				this.showStatusDialog();
+			}
+		});
+	}
+
+	private isBadgeHidden(): boolean {
+		if (typeof window === "undefined" || typeof localStorage === "undefined")
+			return false;
+		try {
+			const hiddenUntil = localStorage.getItem("aperture_badge_hidden_until");
+			if (hiddenUntil) {
+				return Date.now() < Number(hiddenUntil);
+			}
+		} catch {
+			// ignore
+		}
+		return false;
+	}
+
+	private hideBadgeFor24h() {
+		if (typeof window === "undefined" || typeof localStorage === "undefined")
+			return;
+		try {
+			const until = String(Date.now() + 24 * 60 * 60 * 1000);
+			localStorage.setItem("aperture_badge_hidden_until", until);
+		} catch {
+			// ignore
+		}
+		if (this.badgeElement) {
+			this.badgeElement.remove();
+			this.badgeElement = null;
+		}
+	}
+
+	private showBadge() {
+		if (typeof window === "undefined" || typeof localStorage === "undefined")
+			return;
+		try {
+			localStorage.removeItem("aperture_badge_hidden_until");
+		} catch {
+			// ignore
+		}
+		// updateBadge will recreate it on next status change
+		if (this.ws) {
+			const status =
+				this.ws.readyState === WebSocket.OPEN ? "connected" : "connecting";
+			this.updateBadge(status);
 		}
 	}
 
@@ -806,10 +866,17 @@ export class ApertureClient {
 
 	private updateBadge(status: "disconnected" | "connecting" | "connected") {
 		if (typeof document === "undefined") return;
+		if (this.isBadgeHidden()) {
+			if (this.badgeElement) {
+				this.badgeElement.remove();
+				this.badgeElement = null;
+			}
+			return;
+		}
 		if (!this.badgeElement) {
 			this.badgeElement = document.createElement("div");
 			this.badgeElement.id = "aperture-badge";
-			this.badgeElement.title = "Manage Aperture session";
+			this.badgeElement.title = "Manage Aperture session (Ctrl+Shift+A)";
 
 			const dot = document.createElement("span");
 			dot.className = "dot";
@@ -1025,9 +1092,31 @@ export class ApertureClient {
 				}, 300);
 			};
 
+			const escHandler = (e: KeyboardEvent) => {
+				if (e.key === "Escape") {
+					document.removeEventListener("keydown", escHandler);
+					overlay.removeEventListener("click", outsideClickHandler);
+					cleanup();
+					resolve({ approved: false, capabilities: [], dismissed: true });
+				}
+			};
+			document.addEventListener("keydown", escHandler);
+
+			const outsideClickHandler = (e: MouseEvent) => {
+				if (e.target === overlay) {
+					document.removeEventListener("keydown", escHandler);
+					overlay.removeEventListener("click", outsideClickHandler);
+					cleanup();
+					resolve({ approved: false, capabilities: [], dismissed: true });
+				}
+			};
+			overlay.addEventListener("click", outsideClickHandler);
+
 			overlay
 				.querySelector("#aperture-btn-dismiss")
 				?.addEventListener("click", () => {
+					document.removeEventListener("keydown", escHandler);
+					overlay.removeEventListener("click", outsideClickHandler);
 					cleanup();
 					resolve({ approved: false, capabilities: [], dismissed: true });
 				});
@@ -1035,6 +1124,8 @@ export class ApertureClient {
 			overlay
 				.querySelector("#aperture-btn-deny")
 				?.addEventListener("click", () => {
+					document.removeEventListener("keydown", escHandler);
+					overlay.removeEventListener("click", outsideClickHandler);
 					cleanup();
 					resolve({ approved: false, capabilities: [] });
 				});
@@ -1075,6 +1166,8 @@ export class ApertureClient {
 						}
 					}
 
+					document.removeEventListener("keydown", escHandler);
+					overlay.removeEventListener("click", outsideClickHandler);
 					cleanup();
 					resolve({ approved: true, capabilities, ttlMs });
 				});
@@ -1157,13 +1250,18 @@ export class ApertureClient {
 
 		const footerHtml = this.approved
 			? `
-            <button id="aperture-status-btn-revoke" class="aperture-btn aperture-btn-deny" style="flex: 1.5;">Revoke Session</button>
-            <button id="aperture-status-btn-close" class="aperture-btn aperture-btn-allow" style="flex: 1;">Close</button>
+            <button id="aperture-status-btn-revoke" class="aperture-btn aperture-btn-deny">Revoke Session</button>
+            <button id="aperture-status-btn-close" class="aperture-btn aperture-btn-allow">Close</button>
 			`
 			: `
             <button id="aperture-status-btn-deny" class="aperture-btn aperture-btn-deny">Deny</button>
             <button id="aperture-status-btn-allow" class="aperture-btn aperture-btn-allow">Allow for this session</button>
 			`;
+
+		const isMac = navigator.platform.toLowerCase().includes("mac");
+		const shortcut = isMac ? "Cmd+Shift+A" : "Ctrl+Shift+A";
+		const badgeHidden = this.isBadgeHidden();
+		const hideButtonText = badgeHidden ? "Show badge" : "Hide badge for 24 hours";
 
 		overlay.innerHTML = `
         <div id="aperture-dialog">
@@ -1185,7 +1283,7 @@ export class ApertureClient {
               <strong style="color: ${sessionStatus === "Approved" ? "#10b981" : sessionStatus === "Denied" ? "#ef4444" : "#f59e0b"};">${sessionStatus}</strong>
             </div>
 
-            <div class="aperture-options" style="margin-top: 12px; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 12px;">
+            <div class="aperture-options" style="margin-top: 12px; border-top: 1px solid var(--ap-border); padding-top: 12px;">
               <label class="aperture-checkbox-label">
                 <input type="checkbox" id="aperture-status-screenshot" ${hasScreenshot ? "checked" : ""} />
                 <div>
@@ -1207,6 +1305,13 @@ export class ApertureClient {
           <div class="aperture-footer">
             ${footerHtml}
           </div>
+
+          <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--ap-border); text-align: center;">
+            <button id="aperture-status-btn-hide" class="aperture-btn aperture-btn-deny" style="width: 100%;">${hideButtonText}</button>
+            <div style="margin-top: 8px; font-size: 11px; color: var(--ap-text-muted);">
+              Re-open any time with <kbd style="font-family: monospace; background: var(--ap-btn-deny-bg); border: 1px solid var(--ap-btn-deny-border); border-radius: 4px; padding: 1px 4px; font-size: 10px;">${shortcut}</kbd>
+            </div>
+          </div>
         </div>
       `;
 
@@ -1223,14 +1328,42 @@ export class ApertureClient {
 			}, 300);
 		};
 
+		const escHandler = (e: KeyboardEvent) => {
+			if (e.key === "Escape") {
+				document.removeEventListener("keydown", escHandler);
+				overlay.removeEventListener("click", outsideClickHandler);
+				cleanup();
+			}
+		};
+		document.addEventListener("keydown", escHandler);
+
+		const outsideClickHandler = (e: MouseEvent) => {
+			if (e.target === overlay) {
+				document.removeEventListener("keydown", escHandler);
+				overlay.removeEventListener("click", outsideClickHandler);
+				cleanup();
+			}
+		};
+		overlay.addEventListener("click", outsideClickHandler);
+
+		// Remove on any button click to avoid leak
+		const removeEsc = () => {
+			document.removeEventListener("keydown", escHandler);
+			overlay.removeEventListener("click", outsideClickHandler);
+		};
+
 		if (this.approved) {
 			overlay
 				.querySelector("#aperture-status-btn-close")
-				?.addEventListener("click", cleanup);
+				?.addEventListener("click", () => {
+					removeEsc();
+					cleanup();
+				});
 
 			overlay
 				.querySelector("#aperture-status-btn-revoke")
 				?.addEventListener("click", () => {
+					removeEsc();
 					this.revokeApproval();
 					this.stopScreenCapture();
 					this.send({
@@ -1295,6 +1428,7 @@ export class ApertureClient {
 			overlay
 				.querySelector("#aperture-status-btn-deny")
 				?.addEventListener("click", () => {
+					removeEsc();
 					this.approved = false;
 					this.denied = true;
 					this.capabilities = [];
@@ -1333,6 +1467,7 @@ export class ApertureClient {
 						}
 					}
 
+					removeEsc();
 					this.approved = true;
 					this.denied = false;
 					this.capabilities = capabilities;
@@ -1345,6 +1480,19 @@ export class ApertureClient {
 					cleanup();
 				});
 		}
+
+		// Hide/Show badge button — works regardless of approval state
+		overlay
+			.querySelector("#aperture-status-btn-hide")
+			?.addEventListener("click", () => {
+				removeEsc();
+				if (this.isBadgeHidden()) {
+					this.showBadge();
+				} else {
+					this.hideBadgeFor24h();
+				}
+				cleanup();
+			});
 	}
 }
 
