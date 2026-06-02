@@ -6,11 +6,37 @@
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		},
+		"./react": {
+			"types": "./dist/react.d.ts",
+			"default": "./dist/react.js"
+		},
+		"./client": {
+			"types": "./dist/client.d.ts",
+			"default": "./dist/client.js"
+		},
+		"./server": {
+			"types": "./dist/server.d.ts",
+			"default": "./dist/server.js"
+		},
+		"./next": {
+			"types": "./dist/frameworks/next.d.ts",
+			"default": "./dist/frameworks/next.js"
+		},
+		"./vite": {
+			"types": "./dist/frameworks/vite.d.ts",
+			"default": "./dist/frameworks/vite.js"
+		}
+	},
 	"bin": {
 		"aperture": "./dist/bin.js"
 	},
 	"scripts": {
-		"build": "tsc -p tsconfig.build.json",
+		"build": "tsc -p tsconfig.build.json && pnpm exec tsup src/client.ts --format esm --outDir dist-browser --minify",
 		"dev": "tsc -p tsconfig.build.json --watch",
 		"typecheck": "tsc --noEmit",
 		"lint": "biome lint .",
@@ -19,6 +45,7 @@
 		"knip": "knip",
 		"audit:deps": "pnpm audit",
 		"test": "vitest run",
+		"test:e2e": "pnpm --filter \"./samples/*\" --workspace-concurrency=1 run test:e2e",
 		"test:watch": "vitest",
 		"test:coverage": "vitest run --coverage",
 		"changeset": "changeset",
@@ -28,11 +55,14 @@
 		"example": "cd samples/next-aperture && pnpm run dev"
 	},
 	"dependencies": {
+		"lit-html": "^3.3.3",
+		"picocolors": "^1.1.1",
 		"ws": "^8"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.16",
 		"@changesets/cli": "^2.31.0",
+		"@playwright/test": "^1.60.0",
 		"@types/node": "^20",
 		"@types/react": "^19",
 		"@types/ws": "^8",
@@ -40,7 +70,7 @@
 		"jsdom": "^29.1.1",
 		"knip": "^6.14.2",
 		"publint": "^0.3.21",
-		"react": "^19",
+		"tsup": "^8.5.1",
 		"typescript": "^5",
 		"vitest": "^4.1.7"
 	},

@@ -43,3 +43,17 @@ jobs:
 
       - name: Package Validation
         run: pnpm run publint
+
+      - name: Dependency Audit
+        run: pnpm audit --prod
+
+      - name: Knip (Find unused code)
+        run: pnpm run knip
+
+      - name: Install Playwright Browsers
+        run: pnpm exec playwright install --with-deps chromium
+        working-directory: samples/next-aperture
+
+      - name: Run E2E Tests
+        run: pnpm run test:e2e
+        working-directory: samples/next-aperture

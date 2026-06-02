@@ -1,39 +1,21 @@
 import * as fs from "node:fs/promises";
-import { createServer, type IncomingMessage } from "node:http";
+import {
+	createServer,
+	type IncomingMessage,
+	type ServerResponse,
+} from "node:http";
 import * as path from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
 import { BROWSER_TOOLS, type BrowserToolName } from "./tools.js";
-
-interface ToolMetadata {
-	name: string;
-	description: string;
-	inputSchema: object;
-}
-
-interface BrowserSession {
-	ws: WebSocket;
-	url: string;
-	title: string;
-	approved: boolean;
-	capabilities: Set<string>;
-	customTools?: ToolMetadata[];
-}
-
-interface MCPRequest {
-	jsonrpc: "2.0";
-	id: number | string;
-	method: string;
-	params?: unknown;
-}
-
-interface MCPResponse {
-	jsonrpc: "2.0";
-	id: number | string | null;
-	result?: unknown;
-	error?: { code: number; message: string };
-}
+import type {
+	BrowserSession,
+	ClientToServerMessage,
+	MCPRequest,
+	MCPResponse,
+	ToolMetadata,
+} from "./types.js";
 
 export class ApertureServer {
 	private wss: WebSocketServer;
@@ -43,65 +25,22 @@ export class ApertureServer {
 	private mcpInitialized = false;
 
 	private port: number;
+	private options: { verbose?: boolean; silentStartup?: boolean };
 
-	constructor(port = 3456) {
+	constructor(
+		port = 3456,
+		options: { verbose?: boolean; silentStartup?: boolean } = {},
+	) {
 		this.port = port;
+		this.options = options;
 		const server = createServer(async (req, res) => {
-			// HTTP JSON-RPC endpoint for MCP clients that connect via HTTP instead of stdio
 			if (req.method === "POST" && req.url === "/mcp") {
-				let body = "";
-				req.on("data", (chunk) => {
-					body += chunk;
-				});
-				req.on("end", async () => {
-					try {
-						const reqData = JSON.parse(body) as MCPRequest;
-						await this.handleMCPRequest(reqData, (response) => {
-							res.writeHead(200, { "Content-Type": "application/json" });
-							res.end(JSON.stringify(response));
-						});
-					} catch {
-						res.writeHead(400, { "Content-Type": "application/json" });
-						res.end(
-							JSON.stringify({
-								jsonrpc: "2.0",
-								id: null,
-								error: { code: -32700, message: "Parse error" },
-							}),
-						);
-					}
-				});
+				await this.handleHttpPost(req, res);
 				return;
 			}
 
 			if (req.url === "/aperture.js") {
-				try {
-					const fileUrl = new URL(import.meta.url);
-					const __dirname = path.dirname(fileURLToPath(fileUrl));
-					let clientPath = path.join(__dirname, "client.js");
-
-					// Resolve path dynamically under vitest/ts-node or production
-					try {
-						await fs.access(clientPath);
-					} catch {
-						const distPath = path.join(__dirname, "../dist/client.js");
-						try {
-							await fs.access(distPath);
-							clientPath = distPath;
-						} catch {
-							const tsPath = path.join(__dirname, "client.ts");
-							await fs.access(tsPath);
-							clientPath = tsPath;
-						}
-					}
-
-					const content = await fs.readFile(clientPath, "utf-8");
-					res.writeHead(200, { "Content-Type": "application/javascript" });
-					res.end(content);
-				} catch (_err) {
-					res.writeHead(500, { "Content-Type": "text/plain" });
-					res.end("Error loading aperture client script");
-				}
+				await this.serveClientScript(res);
 			} else {
 				res.writeHead(404, { "Content-Type": "text/plain" });
 				res.end("Not Found");
@@ -113,11 +52,70 @@ export class ApertureServer {
 		this.setupStdio();
 
 		server.listen(port, () => {
-			console.error(`[Aperture] MCP server on ws://localhost:${this.port}/mcp`);
-			console.error(
-				`[Aperture] Browser client script: http://localhost:${this.port}/aperture.js`,
-			);
+			if (!this.options.silentStartup) {
+				console.error(
+					`[Aperture] MCP server on ws://localhost:${this.port}/mcp`,
+				);
+				console.error(
+					`[Aperture] Browser client script: http://localhost:${this.port}/aperture.js`,
+				);
+			}
 		});
+	}
+
+	private async handleHttpPost(req: IncomingMessage, res: ServerResponse) {
+		let body = "";
+		req.on("data", (chunk) => {
+			body += chunk;
+		});
+		req.on("end", async () => {
+			try {
+				const reqData = JSON.parse(body) as MCPRequest;
+				await this.handleMCPRequest(reqData, (response) => {
+					res.writeHead(200, { "Content-Type": "application/json" });
+					res.end(JSON.stringify(response));
+				});
+			} catch {
+				res.writeHead(400, { "Content-Type": "application/json" });
+				res.end(
+					JSON.stringify({
+						jsonrpc: "2.0",
+						id: null,
+						error: { code: -32700, message: "Parse error" },
+					}),
+				);
+			}
+		});
+	}
+
+	private async serveClientScript(res: ServerResponse) {
+		try {
+			const fileUrl = new URL(import.meta.url);
+			const __dirname = path.dirname(fileURLToPath(fileUrl));
+			let clientPath = path.join(__dirname, "client.js");
+
+			// Resolve path dynamically under vitest/ts-node or production
+			try {
+				await fs.access(clientPath);
+			} catch {
+				const distPath = path.join(__dirname, "../dist-browser/client.js");
+				try {
+					await fs.access(distPath);
+					clientPath = distPath;
+				} catch {
+					const tsPath = path.join(__dirname, "client.ts");
+					await fs.access(tsPath);
+					clientPath = tsPath;
+				}
+			}
+
+			const content = await fs.readFile(clientPath, "utf-8");
+			res.writeHead(200, { "Content-Type": "application/javascript" });
+			res.end(content);
+		} catch (_err) {
+			res.writeHead(500, { "Content-Type": "text/plain" });
+			res.end("Error loading aperture client script");
+		}
 	}
 
 	private setupWSS() {
@@ -140,6 +138,7 @@ export class ApertureServer {
 			url: "",
 			title: "",
 			approved: false,
+			focused: false,
 			capabilities: new Set(),
 			customTools: [],
 		};
@@ -147,7 +146,7 @@ export class ApertureServer {
 
 		ws.on("message", (raw) => {
 			try {
-				const msg = JSON.parse(raw.toString());
+				const msg = JSON.parse(raw.toString()) as ClientToServerMessage;
 				if (msg.type === "register") {
 					session.url = msg.url;
 					session.title = msg.title;
@@ -167,6 +166,9 @@ export class ApertureServer {
 					console.error(
 						`[Aperture] Session ${sessionId.slice(0, 8)} ${msg.approved ? "approved" : "denied"}`,
 					);
+				}
+				if (msg.type === "focus") {
+					session.focused = msg.focused;
 				}
 				if (msg.type === "result") {
 					const resolvePending = this.pendingRequests.get(msg.requestId);
@@ -269,25 +271,7 @@ export class ApertureServer {
 		send: (res: MCPResponse) => void,
 	) {
 		if (req.method === "initialize") {
-			this.mcpInitialized = true;
-			const agentConnectedMsg = JSON.stringify({ type: "agent_connected" });
-			this.sessions.forEach((session) => {
-				if (session.ws.readyState === WebSocket.OPEN) {
-					session.ws.send(agentConnectedMsg);
-				}
-			});
-
-			send({
-				jsonrpc: "2.0",
-				id: req.id,
-				result: {
-					protocolVersion: "2024-11-05",
-					capabilities: {
-						tools: {},
-					},
-					serverInfo: { name: "aperture", version: "0.1.0" },
-				},
-			});
+			this.handleInitialize(req, send);
 			return;
 		}
 
@@ -296,143 +280,12 @@ export class ApertureServer {
 		}
 
 		if (req.method === "tools/list") {
-			const tools = Object.entries(BROWSER_TOOLS).map(([name, def]) => ({
-				name,
-				description: def.description,
-				inputSchema: def.inputSchema,
-			})) as Array<ToolMetadata>;
-
-			const addedCustomTools = new Set<string>();
-			for (const session of this.sessions.values()) {
-				if (session.approved && session.customTools) {
-					for (const ct of session.customTools) {
-						if (!addedCustomTools.has(ct.name)) {
-							addedCustomTools.add(ct.name);
-							tools.push(ct);
-						}
-					}
-				}
-			}
-
-			send({ jsonrpc: "2.0", id: req.id, result: { tools } });
-			return;
-		}
-
-		if (
-			req.method === "tools/call" &&
-			(req.params as any)?.name === "browser_list_sessions"
-		) {
-			const sessions = Array.from(this.sessions.entries()).map(([id, s]) => ({
-				sessionId: id,
-				url: s.url,
-				title: s.title,
-				approved: s.approved,
-				capabilities: Array.from(s.capabilities),
-			}));
-			send({ jsonrpc: "2.0", id: req.id, result: { sessions } });
+			this.handleToolsList(req, send);
 			return;
 		}
 
 		if (req.method === "tools/call") {
-			const params = req.params as
-				| { name: string; arguments?: Record<string, unknown> }
-				| undefined;
-			const toolName = params?.name as string;
-			
-			let isValid = !!BROWSER_TOOLS[toolName as BrowserToolName];
-			if (!isValid) {
-				for (const session of this.sessions.values()) {
-					if (session.approved && session.customTools?.some(t => t.name === toolName)) {
-						isValid = true;
-						break;
-					}
-				}
-			}
-
-			if (!toolName || !isValid) {
-				send({
-					jsonrpc: "2.0",
-					id: req.id,
-					error: { code: -32601, message: "Tool not found" },
-				});
-				return;
-			}
-
-			const args = (params?.arguments || {}) as Record<string, unknown>;
-			const session = this.getApprovedSession(
-				args.sessionId as string | undefined,
-			);
-			if (!session) {
-				// Check if there are multiple approved sessions
-				const approvedSessions = Array.from(this.sessions.values()).filter(
-					(s) => s.approved && s.ws.readyState === WebSocket.OPEN,
-				);
-				if (approvedSessions.length > 1) {
-					send({
-						jsonrpc: "2.0",
-						id: req.id,
-						error: {
-							code: -32000,
-							message:
-								"Multiple approved browser sessions are connected. Use browser_list_sessions to get sessionIds, then pass sessionId in subsequent tool calls.",
-						},
-					});
-				} else {
-					send({
-						jsonrpc: "2.0",
-						id: req.id,
-						error: {
-							code: -32000,
-							message:
-								"No approved browser session. Ask the user to enable aperture in their dev session.",
-						},
-					});
-				}
-				return;
-			}
-
-			// For evaluate, require explicit capability
-			if (
-				toolName === "browser_evaluate" &&
-				!session.capabilities.has("evaluate")
-			) {
-				send({
-					jsonrpc: "2.0",
-					id: req.id,
-					error: {
-						code: -32001,
-						message:
-							"browser_evaluate requires explicit approval. Prompt the user to allow JS evaluation.",
-					},
-				});
-				return;
-			}
-
-			// Forward tool call to browser session
-			const requestId = crypto.randomUUID();
-			session.ws.send(
-				JSON.stringify({
-					type: "tool_call",
-					requestId,
-					tool: toolName,
-					args: params?.arguments || {},
-				}),
-			);
-
-			// Wait for result (with timeout)
-			const result = await this.waitForBrowserResult(requestId, 5000);
-			if (result) {
-				send({ jsonrpc: "2.0", id: req.id, result });
-			} else {
-				send({
-					jsonrpc: "2.0",
-					id: req.id,
-					error: {
-						code: -32002,
-						message: "Browser session did not respond in time.",
-					},
-				});
-			}
+			await this.handleToolsCall(req, send);
 			return;
 		}
 
@@ -441,6 +294,303 @@ export class ApertureServer {
 			id: req.id,
 			error: { code: -32601, message: "Method not found" },
 		});
+	}
+
+	private handleInitialize(req: MCPRequest, send: (res: MCPResponse) => void) {
+		this.mcpInitialized = true;
+		const agentConnectedMsg = JSON.stringify({ type: "agent_connected" });
+		this.sessions.forEach((session) => {
+			if (session.ws.readyState === WebSocket.OPEN) {
+				session.ws.send(agentConnectedMsg);
+			}
+		});
+
+		send({
+			jsonrpc: "2.0",
+			id: req.id,
+			result: {
+				protocolVersion: "2024-11-05",
+				capabilities: {
+					tools: {},
+				},
+				serverInfo: { name: "aperture", version: "0.1.0" },
+			},
+		});
+	}
+
+	private handleToolsList(req: MCPRequest, send: (res: MCPResponse) => void) {
+		const tools = Object.entries(BROWSER_TOOLS).map(([name, def]) => ({
+			name,
+			description: def.description,
+			inputSchema: def.inputSchema,
+		})) as Array<ToolMetadata>;
+
+		const addedCustomTools = new Set<string>();
+		for (const session of this.sessions.values()) {
+			if (session.approved && session.customTools) {
+				for (const ct of session.customTools) {
+					if (!addedCustomTools.has(ct.name)) {
+						addedCustomTools.add(ct.name);
+						tools.push(ct);
+					}
+				}
+			}
+		}
+
+		send({ jsonrpc: "2.0", id: req.id, result: { tools } });
+	}
+
+	private async handleToolsCall(
+		req: MCPRequest,
+		send: (res: MCPResponse) => void,
+	) {
+		const params = req.params as
+			| { name: string; arguments?: Record<string, unknown> }
+			| undefined;
+		const toolName = params?.name as string;
+
+		if (toolName === "browser_list_sessions") {
+			const sessions = Array.from(this.sessions.entries()).map(([id, s]) => ({
+				sessionId: id,
+				url: s.url,
+				title: s.title,
+				approved: s.approved,
+				focused: s.focused,
+				capabilities: Array.from(s.capabilities),
+			}));
+			send({ jsonrpc: "2.0", id: req.id, result: { sessions } });
+			return;
+		}
+
+		let isValid = !!BROWSER_TOOLS[toolName as BrowserToolName];
+		if (!isValid) {
+			for (const session of this.sessions.values()) {
+				if (
+					session.approved &&
+					session.customTools?.some((t) => t.name === toolName)
+				) {
+					isValid = true;
+					break;
+				}
+			}
+		}
+
+		if (!toolName || !isValid) {
+			send({
+				jsonrpc: "2.0",
+				id: req.id,
+				error: { code: -32601, message: "Tool not found" },
+			});
+			return;
+		}
+
+		const args = (params?.arguments || {}) as Record<string, unknown>;
+		const sessionId = args.sessionId as string | undefined;
+
+		// If a specific session was requested, use it
+		if (sessionId) {
+			const session = this.sessions.get(sessionId);
+			if (!session || session.ws.readyState !== WebSocket.OPEN) {
+				send({
+					jsonrpc: "2.0",
+					id: req.id,
+					error: { code: -32000, message: "Session not found or closed" },
+				});
+				return;
+			}
+			await this.forwardToolCall(
+				req,
+				send,
+				session,
+				toolName,
+				params?.arguments || {},
+			);
+			return;
+		}
+
+		// Focus-aware session selection
+		const focusedSession = this.getFocusedSession();
+		if (focusedSession) {
+			if (focusedSession.approved) {
+				await this.forwardToolCall(
+					req,
+					send,
+					focusedSession,
+					toolName,
+					params?.arguments || {},
+				);
+				return;
+			}
+
+			// Focused session is unapproved — broadcast to ALL connected sessions
+			// so the approval modal pops on every tab. First to approve wins.
+			const connectedSessions = Array.from(this.sessions.values()).filter(
+				(s) => s.ws.readyState === WebSocket.OPEN,
+			);
+			if (connectedSessions.length === 0) {
+				send({
+					jsonrpc: "2.0",
+					id: req.id,
+					error: {
+						code: -32000,
+						message:
+							"No browser session connected. Ask the user to enable aperture in their dev session.",
+					},
+				});
+				return;
+			}
+
+			const requestId = crypto.randomUUID();
+			for (const s of connectedSessions) {
+				s.ws.send(
+					JSON.stringify({
+						type: "tool_call",
+						requestId,
+						tool: toolName,
+						args: params?.arguments || {},
+					}),
+				);
+			}
+
+			const result = await this.waitForFirstBrowserResult(requestId, 60000);
+			if (result) {
+				send({ jsonrpc: "2.0", id: req.id, result });
+			} else {
+				send({
+					jsonrpc: "2.0",
+					id: req.id,
+					error: {
+						code: -32002,
+						message:
+							"Browser session did not respond in time. The user may have dismissed the approval dialog.",
+					},
+				});
+			}
+			return;
+		}
+
+		// No focused session — fall back to approved session logic
+		const approvedSession = this.getApprovedSession();
+		if (approvedSession) {
+			await this.forwardToolCall(
+				req,
+				send,
+				approvedSession,
+				toolName,
+				params?.arguments || {},
+			);
+			return;
+		}
+
+		// Multiple approved sessions without a focused one — ambiguous
+		const approvedCount = Array.from(this.sessions.values()).filter(
+			(s) => s.approved && s.ws.readyState === WebSocket.OPEN,
+		).length;
+		if (approvedCount > 1) {
+			send({
+				jsonrpc: "2.0",
+				id: req.id,
+				error: {
+					code: -32000,
+					message:
+						"Multiple approved browser sessions are connected. Use browser_list_sessions to get sessionIds, then pass sessionId in subsequent tool calls.",
+				},
+			});
+			return;
+		}
+
+		// Zero approved sessions — forward to ALL connected sessions so
+		// the approval modal pops on every tab. First to approve wins.
+		const connectedSessions = Array.from(this.sessions.values()).filter(
+			(s) => s.ws.readyState === WebSocket.OPEN,
+		);
+		if (connectedSessions.length === 0) {
+			send({
+				jsonrpc: "2.0",
+				id: req.id,
+				error: {
+					code: -32000,
+					message:
+						"No browser session connected. Ask the user to enable aperture in their dev session.",
+				},
+			});
+			return;
+		}
+
+		const requestId = crypto.randomUUID();
+		for (const s of connectedSessions) {
+			s.ws.send(
+				JSON.stringify({
+					type: "tool_call",
+					requestId,
+					tool: toolName,
+					args: params?.arguments || {},
+				}),
+			);
+		}
+
+		const result = await this.waitForFirstBrowserResult(requestId, 60000);
+		if (result) {
+			send({ jsonrpc: "2.0", id: req.id, result });
+		} else {
+			send({
+				jsonrpc: "2.0",
+				id: req.id,
+				error: {
+					code: -32002,
+					message:
+						"Browser session did not respond in time. The user may have dismissed the approval dialog.",
+				},
+			});
+		}
+	}
+
+	private async forwardToolCall(
+		req: MCPRequest,
+		send: (res: MCPResponse) => void,
+		session: BrowserSession,
+		toolName: string,
+		args: Record<string, unknown>,
+	) {
+		if (
+			toolName === "browser_evaluate" &&
+			!session.capabilities.has("evaluate")
+		) {
+			send({
+				jsonrpc: "2.0",
+				id: req.id,
+				error: {
+					code: -32001,
+					message:
+						"browser_evaluate requires explicit approval. Prompt the user to allow JS evaluation.",
+				},
+			});
+			return;
+		}
+
+		const requestId = crypto.randomUUID();
+		session.ws.send(
+			JSON.stringify({
+				type: "tool_call",
+				requestId,
+				tool: toolName,
+				args,
+			}),
+		);
+
+		const result = await this.waitForBrowserResult(requestId, 5000);
+		if (result) {
+			send({ jsonrpc: "2.0", id: req.id, result });
+		} else {
+			send({
+				jsonrpc: "2.0",
+				id: req.id,
+				error: {
+					code: -32002,
+					message: "Browser session did not respond in time.",
+				},
+			});
+		}
 	}
 
 	private getApprovedSession(sessionId?: string): BrowserSession | undefined {
@@ -468,6 +618,15 @@ export class ApertureServer {
 		return found;
 	}
 
+	private getFocusedSession(): BrowserSession | undefined {
+		for (const session of this.sessions.values()) {
+			if (session.focused && session.ws.readyState === WebSocket.OPEN) {
+				return session;
+			}
+		}
+		return undefined;
+	}
+
 	private waitForBrowserResult(
 		requestId: string,
 		timeoutMs: number,
@@ -479,6 +638,28 @@ export class ApertureServer {
 			}, timeoutMs);
 
 			this.pendingRequests.set(requestId, (result) => {
+				clearTimeout(timer);
+				this.pendingRequests.delete(requestId);
+				resolve(result);
+			});
+		});
+	}
+
+	private waitForFirstBrowserResult(
+		requestId: string,
+		timeoutMs: number,
+	): Promise<unknown | null> {
+		return new Promise((resolve) => {
+			const timer = setTimeout(() => {
+				this.pendingRequests.delete(requestId);
+				resolve(null);
+			}, timeoutMs);
+
+			// Wrap the resolve so it only fires once (first session to respond wins)
+			let settled = false;
+			this.pendingRequests.set(requestId, (result) => {
+				if (settled) return;
+				settled = true;
 				clearTimeout(timer);
 				this.pendingRequests.delete(requestId);
 				resolve(result);

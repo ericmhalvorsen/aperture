@@ -1,4 +1,4 @@
-// @vitest-environment node
+// @vitest-environment jsdom
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { WebSocket } from "ws";
 import { ApertureServer } from "../src/server.js";
@@ -9,72 +9,11 @@ let client: any;
 const port = 4568;
 
 beforeAll(async () => {
-	// Set up global mocks for Node environment before importing the client
-	const store: Record<string, string> = {};
-	const mockLocalStorage = {
-		getItem: (key: string) => store[key] || null,
-		setItem: (key: string, val: string) => {
-			store[key] = String(val);
-		},
-		removeItem: (key: string) => {
-			delete store[key];
-		},
-		clear: () => {
-			for (const k in store) delete store[k];
-		},
-		key: (i: number) => Object.keys(store)[i] || null,
-		get length() {
-			return Object.keys(store).length;
-		},
-	};
-
-	const mockDocument = {
-		getElementById: () => null,
-		createTextNode: (txt: string) => ({ textContent: txt }),
-		createElement: (tag: string) => {
-			if (tag === "style") return { id: "", textContent: "" };
-			if (tag === "div")
-				return {
-					id: "",
-					appendChild: () => {},
-					querySelector: () => null,
-					remove: () => {},
-					addEventListener: () => {},
-				};
-			return { addEventListener: () => {} };
-		},
-		head: { appendChild: () => {} },
-		body: {
-			appendChild: () => {},
-			get innerText() {
-				return "Integration log message content";
-			},
-		},
-		querySelectorAll: () => [],
-		querySelector: () => null,
-		cookie: "test-cookie=123",
-	};
-
-	global.window = {
-		fetch: vi.fn(),
-		location: { href: `http://localhost:${port}`, hostname: "localhost" },
-		navigator: { userAgent: "NodeJS Test" },
-		addEventListener: () => {},
-		localStorage: mockLocalStorage,
-		document: mockDocument,
-		Event: class {},
-		MouseEvent: class {},
-	} as any;
-
-	global.document = mockDocument as any;
-	global.localStorage = mockLocalStorage as any;
-	global.location = global.window.location;
-	global.navigator = global.window.navigator;
-
-	global.HTMLInputElement = class {} as any;
-	global.HTMLTextAreaElement = class {} as any;
-	global.WebSocket = WebSocket as any;
+	// JSDOM provides window, document, and localStorage natively.
+	// We only need to mock specific missing APIs like fetch and WebSocket.
+	global.window.fetch = vi.fn() as any;
 	global.window.WebSocket = WebSocket as any;
+	global.WebSocket = WebSocket as any;
 
 	// Dynamically import client now that mock globals are active
 	const clientModule = await import("../src/client.js");
@@ -96,8 +35,8 @@ beforeAll(async () => {
 				description: "Gets fake redux state",
 				inputSchema: { type: "object", properties: {} },
 				handler: () => ({ state: "faked" }),
-			}
-		}
+			},
+		},
 	});
 
 	client.connect();
@@ -195,7 +134,7 @@ test("exposes custom tools in tools/list and routes custom tool calls", async ()
 
 	expect(listResponse.result.tools).toBeDefined();
 	const customTool = listResponse.result.tools.find(
-		(t: any) => t.name === "custom_redux_state"
+		(t: any) => t.name === "custom_redux_state",
 	);
 	expect(customTool).toBeDefined();
 	expect(customTool.description).toBe("Gets fake redux state");

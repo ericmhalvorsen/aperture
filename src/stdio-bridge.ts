@@ -84,8 +84,8 @@ process.stdin.on("data", (chunk) => {
 });
 
 process.stdin.on("end", () => {
-	if (ws) ws.close();
-	process.exit(0);
+	console.error("[Aperture Bridge] Stdin closed, keeping connection alive.");
+	// Do NOT exit — the server may reconnect and we should stay ready.
 });
 
 connect();

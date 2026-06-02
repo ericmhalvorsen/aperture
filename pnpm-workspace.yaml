@@ -1,3 +1,5 @@
+packages:
+  - "samples/*"
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver

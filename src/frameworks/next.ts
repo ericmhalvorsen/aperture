@@ -9,5 +9,13 @@ export function withAperture<T = Record<string, unknown>>(
 	// Fire-and-forget: start the server when Next.js loads the config
 	ensureApertureServer(port).catch(() => {});
 
-	return nextConfig;
+	const config = { ...nextConfig } as Record<string, unknown>;
+	const serverExternalPackages =
+		(config.serverExternalPackages as string[] | undefined) || [];
+	if (!serverExternalPackages.includes("@halvo/aperture")) {
+		serverExternalPackages.push("@halvo/aperture");
+	}
+	config.serverExternalPackages = serverExternalPackages;
+
+	return config as T;
 }

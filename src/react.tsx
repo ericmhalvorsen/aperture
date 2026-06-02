@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect } from "react";
-import { initAperture } from "./client.js";
-
 import type { CustomToolDefinition } from "./client.js";
+import { initAperture } from "./client.js";
 
 interface ApertureProps {
 	port?: number;

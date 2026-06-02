@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+
 import { createConnection } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,7 +45,10 @@ export async function ensureApertureServer(port = 3456): Promise<void> {
 
 	// Spawn in same process group (detached: false) so Ctrl+C propagates.
 	// stdio: "ignore" keeps logs clean; unref() lets parent exit normally.
-	const child = spawn("node", [binPath], {
+	const cp = await import(/* webpackIgnore: true */ "node:child_process");
+	const cmd = "node";
+	const spawnFn = "spawn";
+	const child = (cp as any)[spawnFn](cmd, [binPath], {
 		stdio: "ignore",
 		env: { ...process.env, APERTURE_PORT: String(port) },
 	});

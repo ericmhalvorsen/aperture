@@ -11,5 +11,7 @@
 		"src/frameworks/next.ts",
 		"src/frameworks/vite.ts"
 	],
-	"project": ["src/**/*.{ts,tsx}", "tests/**/*.ts"]
+	"project": ["src/**/*.{ts,tsx}", "tests/**/*.ts"],
+	"ignore": ["samples/**"],
+	"ignoreBinaries": ["playwright"]
 }
