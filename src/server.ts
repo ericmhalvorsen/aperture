@@ -27,6 +27,12 @@ export class ApertureServer {
 	private port: number;
 	private options: { verbose?: boolean; silentStartup?: boolean };
 
+	// SSE transport sessions for remote MCP clients (e.g. opencode type: "remote")
+	private sseSessions: Map<
+		string,
+		{ res: ServerResponse; lastEventId: number }
+	> = new Map();
+
 	constructor(
 		port = 3456,
 		options: { verbose?: boolean; silentStartup?: boolean } = {},
@@ -34,6 +40,18 @@ export class ApertureServer {
 		this.port = port;
 		this.options = options;
 		const server = createServer(async (req, res) => {
+			// SSE endpoint for remote MCP clients
+			if (req.method === "GET" && req.url === "/sse") {
+				await this.handleSSEConnection(req, res);
+				return;
+			}
+
+			// JSON-RPC message endpoint for SSE clients
+			if (req.method === "POST" && req.url?.startsWith("/messages")) {
+				await this.handleSSEMessage(req, res);
+				return;
+			}
+
 			if (req.method === "POST" && req.url === "/mcp") {
 				await this.handleHttpPost(req, res);
 				return;
@@ -75,6 +93,67 @@ export class ApertureServer {
 					res.writeHead(200, { "Content-Type": "application/json" });
 					res.end(JSON.stringify(response));
 				});
+			} catch {
+				res.writeHead(400, { "Content-Type": "application/json" });
+				res.end(
+					JSON.stringify({
+						jsonrpc: "2.0",
+						id: null,
+						error: { code: -32700, message: "Parse error" },
+					}),
+				);
+			}
+		});
+	}
+
+	private async handleSSEConnection(_req: IncomingMessage, res: ServerResponse) {
+		const sessionId = crypto.randomUUID();
+		res.writeHead(200, {
+			"Content-Type": "text/event-stream",
+			"Cache-Control": "no-cache, no-transform",
+			Connection: "keep-alive",
+		});
+
+		// Send the endpoint event so the client knows where to POST messages
+		const messageUrl = `/messages?sessionId=${sessionId}`;
+		res.write(`event: endpoint\ndata: ${messageUrl}\n\n`);
+
+		this.sseSessions.set(sessionId, { res, lastEventId: 0 });
+
+		console.error(`[Aperture] SSE session ${sessionId.slice(0, 8)} connected`);
+
+		// Remove session when client disconnects
+		res.on("close", () => {
+			this.sseSessions.delete(sessionId);
+			console.error(`[Aperture] SSE session ${sessionId.slice(0, 8)} disconnected`);
+		});
+	}
+
+	private async handleSSEMessage(req: IncomingMessage, res: ServerResponse) {
+		const url = new URL(req.url || "/", `http://localhost:${this.port}`);
+		const sessionId = url.searchParams.get("sessionId");
+		const session = sessionId ? this.sseSessions.get(sessionId) : undefined;
+
+		if (!session) {
+			res.writeHead(404, { "Content-Type": "text/plain" });
+			res.end("Session not found");
+			return;
+		}
+
+		let body = "";
+		req.on("data", (chunk) => {
+			body += chunk;
+		});
+		req.on("end", async () => {
+			try {
+				const reqData = JSON.parse(body) as MCPRequest;
+				await this.handleMCPRequest(reqData, (response) => {
+					// Send response back through SSE stream
+					const data = JSON.stringify(response);
+					session.res.write(`data: ${data}\n\n`);
+				});
+				res.writeHead(202);
+				res.end("Accepted");
 			} catch {
 				res.writeHead(400, { "Content-Type": "application/json" });
 				res.end(

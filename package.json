@@ -55,9 +55,11 @@
 		"example": "cd samples/next-aperture && pnpm run dev"
 	},
 	"dependencies": {
+		"@modelcontextprotocol/sdk": "^1.29.0",
 		"lit-html": "^3.3.3",
 		"picocolors": "^1.1.1",
-		"ws": "^8"
+		"ws": "^8",
+		"zod": "^4.4.3"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.16",
