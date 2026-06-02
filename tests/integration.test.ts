@@ -104,8 +104,12 @@ test("routes tool calls from MCP to client and returns results", async () => {
 	expect(response.id).toBe("mcp-req-1");
 	expect(response.result).toBeDefined();
 
-	// Assert actual data integration: checking if the logged text is in the returned list
-	const logs = response.result as Array<{
+	// Assert actual data integration: results are wrapped in MCP CallToolResult format
+	const mcpResult = response.result as { content: Array<{ type: string; text: string }> };
+	expect(mcpResult.content).toBeDefined();
+	expect(mcpResult.content[0].type).toBe("text");
+
+	const logs = JSON.parse(mcpResult.content[0].text) as Array<{
 		level: string;
 		message: string;
 		timestamp: number;
@@ -157,5 +161,7 @@ test("exposes custom tools in tools/list and routes custom tool calls", async ()
 
 	expect(callResponse.jsonrpc).toBe("2.0");
 	expect(callResponse.id).toBe("mcp-req-2");
-	expect(callResponse.result).toEqual({ state: "faked" });
+	const mcpResult2 = callResponse.result as { content: Array<{ type: string; text: string }> };
+	expect(mcpResult2.content).toBeDefined();
+	expect(JSON.parse(mcpResult2.content[0].text)).toEqual({ state: "faked" });
 });

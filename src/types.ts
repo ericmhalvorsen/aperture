@@ -68,7 +68,7 @@ export interface BrowserSession {
 	url: string;
 	title: string;
 	approved: boolean;
-	focused: boolean;
+	lastActiveAt: number;
 	capabilities: Set<string>;
 	customTools?: ToolMetadata[];
 }

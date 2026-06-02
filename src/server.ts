@@ -148,9 +148,9 @@ export class ApertureServer {
 			try {
 				const reqData = JSON.parse(body) as MCPRequest;
 				await this.handleMCPRequest(reqData, (response) => {
-					// Send response back through SSE stream
+					// Send response back through SSE stream with event: message (MCP SDK expects this)
 					const data = JSON.stringify(response);
-					session.res.write(`data: ${data}\n\n`);
+					session.res.write(`event: message\ndata: ${data}\n\n`);
 				});
 				res.writeHead(202);
 				res.end("Accepted");
@@ -217,7 +217,7 @@ export class ApertureServer {
 			url: "",
 			title: "",
 			approved: false,
-			focused: false,
+			lastActiveAt: Date.now(),
 			capabilities: new Set(),
 			customTools: [],
 		};
@@ -247,7 +247,9 @@ export class ApertureServer {
 					);
 				}
 				if (msg.type === "focus") {
-					session.focused = msg.focused;
+					if (msg.focused) {
+						session.lastActiveAt = Date.now();
+					}
 				}
 				if (msg.type === "result") {
 					const resolvePending = this.pendingRequests.get(msg.requestId);
@@ -434,10 +436,10 @@ export class ApertureServer {
 				url: s.url,
 				title: s.title,
 				approved: s.approved,
-				focused: s.focused,
+				lastActiveAt: s.lastActiveAt,
 				capabilities: Array.from(s.capabilities),
 			}));
-			send({ jsonrpc: "2.0", id: req.id, result: { sessions } });
+			send({ jsonrpc: "2.0", id: req.id, result: this.wrapMcpResult({ sessions }) });
 			return;
 		}
 
@@ -487,81 +489,20 @@ export class ApertureServer {
 			return;
 		}
 
-		// Focus-aware session selection
-		const focusedSession = this.getFocusedSession();
-		if (focusedSession) {
-			if (focusedSession.approved) {
-				await this.forwardToolCall(
-					req,
-					send,
-					focusedSession,
-					toolName,
-					params?.arguments || {},
-				);
-				return;
-			}
-
-			// Focused session is unapproved — broadcast to ALL connected sessions
-			// so the approval modal pops on every tab. First to approve wins.
-			const connectedSessions = Array.from(this.sessions.values()).filter(
-				(s) => s.ws.readyState === WebSocket.OPEN,
-			);
-			if (connectedSessions.length === 0) {
-				send({
-					jsonrpc: "2.0",
-					id: req.id,
-					error: {
-						code: -32000,
-						message:
-							"No browser session connected. Ask the user to enable aperture in their dev session.",
-					},
-				});
-				return;
-			}
-
-			const requestId = crypto.randomUUID();
-			for (const s of connectedSessions) {
-				s.ws.send(
-					JSON.stringify({
-						type: "tool_call",
-						requestId,
-						tool: toolName,
-						args: params?.arguments || {},
-					}),
-				);
-			}
-
-			const result = await this.waitForFirstBrowserResult(requestId, 60000);
-			if (result) {
-				send({ jsonrpc: "2.0", id: req.id, result });
-			} else {
-				send({
-					jsonrpc: "2.0",
-					id: req.id,
-					error: {
-						code: -32002,
-						message:
-							"Browser session did not respond in time. The user may have dismissed the approval dialog.",
-					},
-				});
-			}
-			return;
-		}
-
-		// No focused session — fall back to approved session logic
-		const approvedSession = this.getApprovedSession();
-		if (approvedSession) {
+		// Session selection: use the most recently active approved session
+		const lastActiveSession = this.getLastActiveSession();
+		if (lastActiveSession) {
 			await this.forwardToolCall(
 				req,
 				send,
-				approvedSession,
+				lastActiveSession,
 				toolName,
 				params?.arguments || {},
 			);
 			return;
 		}
 
-		// Multiple approved sessions without a focused one — ambiguous
+		// Multiple approved sessions with no clear last-active winner — ambiguous
 		const approvedCount = Array.from(this.sessions.values()).filter(
 			(s) => s.approved && s.ws.readyState === WebSocket.OPEN,
 		).length;
@@ -657,9 +598,9 @@ export class ApertureServer {
 			}),
 		);
 
-		const result = await this.waitForBrowserResult(requestId, 5000);
+		const result = await this.waitForBrowserResult(requestId, 15000); // TODO v2: 60s + listen for 'accepted' event
 		if (result) {
-			send({ jsonrpc: "2.0", id: req.id, result });
+			send({ jsonrpc: "2.0", id: req.id, result: this.wrapMcpResult(result) });
 		} else {
 			send({
 				jsonrpc: "2.0",
@@ -697,13 +638,27 @@ export class ApertureServer {
 		return found;
 	}
 
-	private getFocusedSession(): BrowserSession | undefined {
+	private getLastActiveSession(): BrowserSession | undefined {
+		let best: BrowserSession | undefined;
 		for (const session of this.sessions.values()) {
-			if (session.focused && session.ws.readyState === WebSocket.OPEN) {
-				return session;
+			if (
+				session.approved &&
+				session.ws.readyState === WebSocket.OPEN &&
+				(!best || session.lastActiveAt > best.lastActiveAt)
+			) {
+				best = session;
 			}
 		}
-		return undefined;
+		return best;
+	}
+
+	/**
+	 * Wrap a raw tool result into MCP CallToolResult format.
+	 * Opencode expects { content: [{ type: "text", text: ... }] }
+	 */
+	private wrapMcpResult(result: unknown): { content: Array<{ type: "text"; text: string }> } {
+		const text = typeof result === "string" ? result : JSON.stringify(result, null, 2);
+		return { content: [{ type: "text", text }] };
 	}
 
 	private waitForBrowserResult(

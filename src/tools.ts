@@ -78,7 +78,8 @@ export const BROWSER_TOOLS = {
 		},
 	},
 	browser_screenshot: {
-		description: "Capture a screenshot of the current viewport as base64 PNG.",
+		description:
+			"Capture a screenshot of the current viewport as base64 PNG. NOTE: If the user has not yet granted screenshot access for this browser session, an approval modal will appear in the page. Ask the user to click 'Allow' in the Aperture dialog before proceeding.",
 		inputSchema: {
 			type: "object" as const,
 			properties: {
@@ -92,7 +93,7 @@ export const BROWSER_TOOLS = {
 	},
 	browser_evaluate: {
 		description:
-			"Evaluate JavaScript in the page context. Requires explicit user approval.",
+			"Evaluate JavaScript in the page context. NOTE: This requires explicit user approval. If not yet approved, an Aperture dialog will appear in the page — ask the user to click 'Allow' before proceeding.",
 		inputSchema: {
 			type: "object" as const,
 			properties: {

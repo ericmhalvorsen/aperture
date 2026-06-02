@@ -385,9 +385,17 @@ export class ApertureClient {
 
 	async captureScreenshotFromStream(): Promise<string> {
 		if (!this.screenCaptureStream?.active) {
-			throw new Error(
-				"No active screen capture stream. Make sure you approved screenshot access.",
-			);
+			// Stream lost — show approval dialog so user can re-grant screenshot access
+			// V2: Basic approval (approved + capabilities) IS remembered across refreshes
+			// via localStorage. The MediaStream object itself cannot be persisted by
+			// browser design — getDisplayMedia() requires live user consent per origin.
+			// Standalone bridge / out-of-app operation is planned for v2.
+			const decision = await this.getApproval("MCP Agent");
+			if (!decision.approved || !this.screenCaptureStream?.active) {
+				throw new Error(
+					"Screenshot access was not granted.",
+				);
+			}
 		}
 		const track = this.screenCaptureStream.getVideoTracks()[0];
 		if (!track) {
