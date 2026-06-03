@@ -40,6 +40,17 @@ export class ApertureServer {
 		this.port = port;
 		this.options = options;
 		const server = createServer(async (req, res) => {
+			// Add CORS headers for all responses
+			res.setHeader("Access-Control-Allow-Origin", "*");
+			res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+			res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+			if (req.method === "OPTIONS") {
+				res.writeHead(204);
+				res.end();
+				return;
+			}
+
 			// SSE endpoint for remote MCP clients
 			if (req.method === "GET" && req.url === "/sse") {
 				await this.handleSSEConnection(req, res);
@@ -106,7 +117,10 @@ export class ApertureServer {
 		});
 	}
 
-	private async handleSSEConnection(_req: IncomingMessage, res: ServerResponse) {
+	private async handleSSEConnection(
+		_req: IncomingMessage,
+		res: ServerResponse,
+	) {
 		const sessionId = crypto.randomUUID();
 		res.writeHead(200, {
 			"Content-Type": "text/event-stream",
@@ -125,7 +139,9 @@ export class ApertureServer {
 		// Remove session when client disconnects
 		res.on("close", () => {
 			this.sseSessions.delete(sessionId);
-			console.error(`[Aperture] SSE session ${sessionId.slice(0, 8)} disconnected`);
+			console.error(
+				`[Aperture] SSE session ${sessionId.slice(0, 8)} disconnected`,
+			);
 		});
 	}
 
@@ -171,21 +187,21 @@ export class ApertureServer {
 		try {
 			const fileUrl = new URL(import.meta.url);
 			const __dirname = path.dirname(fileURLToPath(fileUrl));
-			let clientPath = path.join(__dirname, "client.js");
+			const possiblePaths = [
+				path.join(__dirname, "../dist-browser/client.js"), // run from dist/
+				path.join(__dirname, "../../dist-browser/client.js"), // run from dist/frameworks/
+				path.join(__dirname, "dist-browser/client.js"), // run from root via ts-node
+				path.join(__dirname, "client.ts"), // fallback to src
+				path.join(__dirname, "../src/client.ts"), // fallback to src
+			];
 
-			// Resolve path dynamically under vitest/ts-node or production
-			try {
-				await fs.access(clientPath);
-			} catch {
-				const distPath = path.join(__dirname, "../dist-browser/client.js");
+			let clientPath = possiblePaths[0];
+			for (const p of possiblePaths) {
 				try {
-					await fs.access(distPath);
-					clientPath = distPath;
-				} catch {
-					const tsPath = path.join(__dirname, "client.ts");
-					await fs.access(tsPath);
-					clientPath = tsPath;
-				}
+					await fs.access(p);
+					clientPath = p;
+					break;
+				} catch {}
 			}
 
 			const content = await fs.readFile(clientPath, "utf-8");
@@ -439,7 +455,11 @@ export class ApertureServer {
 				lastActiveAt: s.lastActiveAt,
 				capabilities: Array.from(s.capabilities),
 			}));
-			send({ jsonrpc: "2.0", id: req.id, result: this.wrapMcpResult({ sessions }) });
+			send({
+				jsonrpc: "2.0",
+				id: req.id,
+				result: this.wrapMcpResult({ sessions }),
+			});
 			return;
 		}
 
@@ -656,8 +676,11 @@ export class ApertureServer {
 	 * Wrap a raw tool result into MCP CallToolResult format.
 	 * Opencode expects { content: [{ type: "text", text: ... }] }
 	 */
-	private wrapMcpResult(result: unknown): { content: Array<{ type: "text"; text: string }> } {
-		const text = typeof result === "string" ? result : JSON.stringify(result, null, 2);
+	private wrapMcpResult(result: unknown): {
+		content: Array<{ type: "text"; text: string }>;
+	} {
+		const text =
+			typeof result === "string" ? result : JSON.stringify(result, null, 2);
 		return { content: [{ type: "text", text }] };
 	}
 

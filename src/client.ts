@@ -392,9 +392,7 @@ export class ApertureClient {
 			// Standalone bridge / out-of-app operation is planned for v2.
 			const decision = await this.getApproval("MCP Agent");
 			if (!decision.approved || !this.screenCaptureStream?.active) {
-				throw new Error(
-					"Screenshot access was not granted.",
-				);
+				throw new Error("Screenshot access was not granted.");
 			}
 		}
 		const track = this.screenCaptureStream.getVideoTracks()[0];
@@ -412,8 +410,17 @@ export class ApertureClient {
 			video.onloadedmetadata = () => resolve(null);
 		});
 
-		// Tiny delay to ensure video renders a frame
-		await new Promise((resolve) => setTimeout(resolve, 150));
+		await video.play().catch(() => null);
+
+		// Wait for an actually painted frame, not just metadata, or playback stays black
+		await new Promise<void>((resolve) => {
+			if (typeof video.requestVideoFrameCallback === "function") {
+				video.requestVideoFrameCallback(() => resolve());
+				setTimeout(() => resolve(), 1000);
+			} else {
+				setTimeout(() => resolve(), 300);
+			}
+		});
 
 		const canvas = document.createElement("canvas");
 		canvas.width = video.videoWidth || 800;

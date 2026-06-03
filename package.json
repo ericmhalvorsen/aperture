@@ -36,7 +36,7 @@
 		"aperture": "./dist/bin.js"
 	},
 	"scripts": {
-		"build": "tsc -p tsconfig.build.json && pnpm exec tsup src/client.ts --format esm --outDir dist-browser --minify",
+		"build": "tsc -p tsconfig.build.json && pnpm exec tsup --config tsup.browser.ts",
 		"dev": "tsc -p tsconfig.build.json --watch",
 		"typecheck": "tsc --noEmit",
 		"lint": "biome lint .",

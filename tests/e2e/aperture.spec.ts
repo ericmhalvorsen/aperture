@@ -13,6 +13,9 @@ test.describe("Aperture Integration", () => {
 	});
 
 	test("shows badge and allows approval flow", async ({ page }) => {
+		page.on("console", msg => console.log(`[Browser Console] ${msg.type()}: ${msg.text()}`));
+		page.on("pageerror", err => console.error(`[Browser Error]: ${err.message}`));
+		page.on("response", res => console.log(`[Network] ${res.status()} ${res.url()}`));
 		await page.goto("/");
 
 		// Badge should eventually appear and say connected

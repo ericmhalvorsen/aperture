@@ -11,19 +11,19 @@ No extensions. No CORS hacks. Auto-connect your local dev browser to Claude Code
 │   Browser Tab   │ ←──────────────────→ │  Aperture Server │
 │  (<Aperture />) │   (dev sidecar)      │   (port 3456)    │
 └─────────────────┘                      └──────────────────┘
-                                                │
-                                                │ stdio bridge
-                                                │ (or HTTP POST)
-                                                ↓
-                                        ┌──────────────────┐
-                                        │   MCP Client     │
-                                        │  (Claude, etc.)  │
-                                        └──────────────────┘
+                                                 │
+                                                 │ SSE / HTTP
+                                                 │ (MCP remote)
+                                                 ↓
+                                         ┌──────────────────┐
+                                         │   MCP Client     │
+                                         │  (OpenCode, etc) │
+                                         └──────────────────┘
 ```
 
 1. **Your app starts the Aperture server** as a dev sidecar (via `withAperture()`, Vite plugin, or manual)
 2. **The browser connects** via WebSocket when `<Aperture />` mounts
-3. **The agent connects** via a lightweight stdio bridge (or HTTP) — it never spawns the server
+3. **The agent connects** via SSE over HTTP to the already-running server
 4. **You approve** the first request per session — deny blocks the agent entirely
 
 ## Installation
@@ -116,30 +116,28 @@ The client will:
 - Render a connection status badge in the bottom-right
 - Listen for incoming agent connections on `ws://localhost:3456`
 - Trigger a glassmorphic authorization modal on the first agent request
+- Track focus/blur to determine which tab the agent should interact with
 
 ### 3. Configure Your Agent
 
-The agent connects to the **already-running** server via a lightweight bridge. It does **not** spawn the server itself.
+The agent connects to the **already-running** server via SSE. It does **not** spawn the server itself.
 
-#### Claude Code / OpenCode / Any MCP Client
+#### OpenCode / Claude Code / Any MCP Client
 
-Add the stdio bridge to your MCP config:
+Add a remote MCP server pointing to the SSE endpoint:
 
 ```json
 {
-  "mcpServers": {
+  "mcp": {
     "aperture": {
-      "command": "node",
-      "args": [
-        "./node_modules/@halvo/aperture/dist/stdio-bridge.js",
-        "3456"
-      ]
+      "type": "remote",
+      "url": "http://localhost:3456/sse"
     }
   }
 }
 ```
 
-The bridge connects to `ws://localhost:3456/mcp` and translates stdio ↔ WebSocket.
+The client connects to `http://localhost:3456/sse`, receives an `endpoint` event, and POSTs JSON-RPC messages to the returned `/messages?sessionId=...` URL.
 
 #### Legacy: Spawning the Server (still works)
 
@@ -147,10 +145,9 @@ If you prefer the old behavior where the agent spawns the server:
 
 ```json
 {
-  "mcpServers": {
+  "mcp": {
     "aperture": {
-      "command": "npx",
-      "args": ["@halvo/aperture"]
+      "command": ["npx", "@halvo/aperture"]
     }
   }
 }
@@ -175,8 +172,12 @@ This is supported but not recommended — the framework integration is cleaner.
 | `browser_type` | Type into inputs | Approval |
 | `browser_scroll` | Scroll page or element | Approval |
 | `browser_page_info` | Read title, URL, viewport | Approval |
-| `browser_screenshot` | Capture viewport | Screenshot checkbox |
+| `browser_screenshot` | Capture viewport | Screenshot checkbox + approval modal if stream inactive |
 | `browser_evaluate` | Run arbitrary JS | Evaluate checkbox |
+
+### Screenshot Tool
+
+`browser_screenshot` requires a live screen capture stream from the browser. If the stream is inactive (e.g. after a page refresh), the Aperture approval modal will appear in the browser tab. Ask the user to click **Allow** — the modal will re-request `getDisplayMedia()` and the screenshot will proceed.
 
 ### Multi-Session Support
 
@@ -188,7 +189,7 @@ If multiple browser tabs are connected, the agent must choose one:
    { "name": "browser_screenshot", "arguments": { "sessionId": "abc-123" } }
    ```
 
-If only one tab is connected, `sessionId` is optional (auto-selected).
+If only one tab is connected, `sessionId` is optional (auto-selected based on most recent activity).
 
 ---
 
@@ -210,13 +211,14 @@ Promptuary App (or any framework)
 ├── app/layout.tsx  → <Aperture />     → browser connects via WebSocket
 │
 └── Agent (opencode, Claude Code, etc.)
-    └── stdio-bridge.js               → connects to ws://localhost:3456/mcp
+    └── SSE connection to http://localhost:3456/sse
 ```
 
-The server is a **dev sidecar** owned by your app. The agent is a **client** that connects to it. This means:
+The server is a **dev sidecar** owned by your app. The agent is a **client** that connects to it via SSE. This means:
 - One `pnpm dev` starts everything
 - No "server not running" errors from the agent
 - The server lifecycle matches your app, not the agent
+- No stdio bridge process to manage or restart
 
 ---
 
