@@ -1,29 +1,30 @@
 // @vitest-environment jsdom
-import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
+import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import { WebSocket } from "ws";
+import type { ApertureClient } from "../src/client.js";
 import { ApertureServer } from "../src/server.js";
 
-let ApertureClient: any;
+let ApertureClientClass: typeof ApertureClient;
 let server: ApertureServer;
-let client: any;
+let client: ApertureClient;
 const port = 4568;
 
 beforeAll(async () => {
 	// JSDOM provides window, document, and localStorage natively.
 	// We only need to mock specific missing APIs like fetch and WebSocket.
-	global.window.fetch = vi.fn() as any;
-	global.window.WebSocket = WebSocket as any;
-	global.WebSocket = WebSocket as any;
+	global.window.fetch = vi.fn() as unknown as typeof fetch;
+	global.window.WebSocket = WebSocket as unknown as typeof window.WebSocket;
+	global.WebSocket = WebSocket as unknown as typeof window.WebSocket;
 
 	// Dynamically import client now that mock globals are active
 	const clientModule = await import("../src/client.js");
-	ApertureClient = clientModule.ApertureClient;
+	ApertureClientClass = clientModule.ApertureClient;
 
 	// Start Server
 	server = new ApertureServer(port);
 
 	// Start Client
-	client = new ApertureClient({
+	client = new ApertureClientClass({
 		serverUrl: `ws://localhost:${port}`,
 		onApprovalRequest: () =>
 			Promise.resolve({
@@ -39,81 +40,89 @@ beforeAll(async () => {
 		},
 	});
 
-	client.connect();
+	(client as { connect: () => void }).connect();
 
-	// Initialize MCP session to trigger client approval
-	const initRequest = {
-		jsonrpc: "2.0" as const,
-		id: "mcp-init-1",
-		method: "initialize",
-		params: {
-			protocolVersion: "2024-11-05",
-			capabilities: {},
-			clientInfo: { name: "test-client", version: "1.0.0" },
-		},
-	};
-	await new Promise<any>((resolve) => {
-		(server as any).handleMCPRequest(initRequest, resolve);
-	});
-
-	// Give handshake time to complete
-	await new Promise((resolve) => setTimeout(resolve, 150));
+	// Wait for client to register with server
+	await new Promise((resolve) => setTimeout(resolve, 200));
 });
 
 afterAll(() => {
 	if (client) {
-		client.disconnect();
+		(client as { disconnect: () => void }).disconnect();
 	}
 	if (server) {
-		(server as any).wss.close();
-		if ((server as any).wss.options.server) {
-			(server as any).wss.options.server.close();
+		// @ts-expect-error accessing private for cleanup
+		server.wss.close();
+		// @ts-expect-error accessing private for cleanup
+		if (server.wss.options.server) {
+			// @ts-expect-error accessing private for cleanup
+			server.wss.options.server.close();
 		}
 	}
 });
+
+async function sendMcpRequest<T = unknown>(
+	ws: WebSocket,
+	method: string,
+	params?: Record<string, unknown>,
+	id = crypto.randomUUID(),
+): Promise<T> {
+	return new Promise((resolve, reject) => {
+		const timeout = setTimeout(() => reject(new Error("Timeout")), 5000);
+		const handler = (data: import("ws").RawData) => {
+			const msg = JSON.parse(data.toString()) as {
+				id: string;
+				result?: unknown;
+				error?: { message: string };
+			};
+			if (msg.id === id) {
+				clearTimeout(timeout);
+				ws.off("message", handler);
+				if (msg.error) reject(new Error(msg.error.message));
+				else resolve(msg.result as T);
+			}
+		};
+		ws.on("message", handler);
+		ws.send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
+	});
+}
 
 test("routes tool calls from MCP to client and returns results", async () => {
 	// Print a console log in node context to trigger console buffering
 	console.log("Integrative Test Log Payload");
 
-	// Simulate MCP tool call request
-	const request = {
-		jsonrpc: "2.0" as const,
-		id: "mcp-req-1",
-		method: "tools/call",
-		params: {
-			name: "browser_console_logs",
-			arguments: {
-				limit: 10,
-				level: "all",
-			},
-		},
-	};
-
-	// Call the server's MCP request handler directly and capture response
-	const responsePromise = new Promise<any>((resolve) => {
-		(server as any).handleMCPRequest(request, (res: any) => {
-			resolve(res);
-		});
+	const mcp = new WebSocket(`ws://localhost:${port}/mcp`);
+	await new Promise<void>((resolve, reject) => {
+		mcp.on("open", resolve);
+		mcp.on("error", reject);
 	});
 
-	const response = await responsePromise;
+	await sendMcpRequest(mcp, "initialize", {
+		protocolVersion: "2024-11-05",
+		capabilities: {},
+		clientInfo: { name: "test-client", version: "1.0.0" },
+	});
 
-	// Assert JSON-RPC payload correctness
-	expect(response.jsonrpc).toBe("2.0");
-	expect(response.id).toBe("mcp-req-1");
-	expect(response.result).toBeDefined();
+	const result = await sendMcpRequest<{
+		content: Array<{ type: string; text: string }>;
+	}>(mcp, "tools/call", {
+		name: "browser_page_info",
+		arguments: { logLimit: 10, logLevel: "all" },
+	});
 
-	// Assert actual data integration: results are wrapped in MCP CallToolResult format
-	const mcpResult = response.result as { content: Array<{ type: string; text: string }> };
-	expect(mcpResult.content).toBeDefined();
-	expect(mcpResult.content[0].type).toBe("text");
+	expect(result.content).toBeDefined();
+	expect(result.content[0].type).toBe("text");
 
-	const logs = JSON.parse(mcpResult.content[0].text) as Array<{
-		level: string;
-		message: string;
-		timestamp: number;
-	}>;
+	const pageInfo = JSON.parse(result.content[0].text) as {
+		url: string;
+		title: string;
+		logs: Array<{
+			level: string;
+			message: string;
+			timestamp: number;
+		}>;
+	};
+	const logs = pageInfo.logs;
 	expect(Array.isArray(logs)).toBe(true);
 
 	const matchingLog = logs.find((log) =>
@@ -121,47 +130,43 @@ test("routes tool calls from MCP to client and returns results", async () => {
 	);
 	expect(matchingLog).toBeDefined();
 	expect(matchingLog?.level).toBe("log");
+
+	mcp.close();
 });
 
 test("exposes custom tools in tools/list and routes custom tool calls", async () => {
-	// Request tools/list to verify custom tool is exposed
-	const listRequest = {
-		jsonrpc: "2.0" as const,
-		id: "mcp-list-1",
-		method: "tools/list",
-	};
-
-	const listPromise = new Promise<any>((resolve) => {
-		(server as any).handleMCPRequest(listRequest, resolve);
+	const mcp = new WebSocket(`ws://localhost:${port}/mcp`);
+	await new Promise<void>((resolve, reject) => {
+		mcp.on("open", resolve);
+		mcp.on("error", reject);
 	});
-	const listResponse = await listPromise;
 
-	expect(listResponse.result.tools).toBeDefined();
-	const customTool = listResponse.result.tools.find(
-		(t: any) => t.name === "custom_redux_state",
+	await sendMcpRequest(mcp, "initialize", {
+		protocolVersion: "2024-11-05",
+		capabilities: {},
+		clientInfo: { name: "test-client", version: "1.0.0" },
+	});
+
+	const listResult = await sendMcpRequest<{
+		tools: Array<{ name: string; description: string }>;
+	}>(mcp, "tools/list");
+
+	expect(listResult.tools).toBeDefined();
+	const customTool = listResult.tools.find(
+		(t) => t.name === "custom_redux_state",
 	);
 	expect(customTool).toBeDefined();
-	expect(customTool.description).toBe("Gets fake redux state");
+	expect(customTool?.description).toBe("Gets fake redux state");
 
-	// Call the custom tool
-	const callRequest = {
-		jsonrpc: "2.0" as const,
-		id: "mcp-req-2",
-		method: "tools/call",
-		params: {
-			name: "custom_redux_state",
-			arguments: {},
-		},
-	};
-
-	const callPromise = new Promise<any>((resolve) => {
-		(server as any).handleMCPRequest(callRequest, resolve);
+	const callResult = await sendMcpRequest<{
+		content: Array<{ type: string; text: string }>;
+	}>(mcp, "tools/call", {
+		name: "custom_redux_state",
+		arguments: {},
 	});
-	const callResponse = await callPromise;
 
-	expect(callResponse.jsonrpc).toBe("2.0");
-	expect(callResponse.id).toBe("mcp-req-2");
-	const mcpResult2 = callResponse.result as { content: Array<{ type: string; text: string }> };
-	expect(mcpResult2.content).toBeDefined();
-	expect(JSON.parse(mcpResult2.content[0].text)).toEqual({ state: "faked" });
+	expect(callResult.content).toBeDefined();
+	expect(JSON.parse(callResult.content[0].text)).toEqual({ state: "faked" });
+
+	mcp.close();
 });

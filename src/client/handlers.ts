@@ -3,16 +3,8 @@ import { getConsoleBuffer, getNetworkBuffer } from "./patches.js";
 
 export const TOOL_HANDLERS: Record<
 	string,
-	(client: ApertureClient, args: Record<string, any>) => any
+	(client: ApertureClient, args: Record<string, any>) => any | Promise<any>
 > = {
-	browser_console_logs: (_client, { level = "all", limit = 50 }) => {
-		let entries = getConsoleBuffer();
-		if (level !== "all") {
-			entries = entries.filter((e) => e.level === level);
-		}
-		return entries.slice(-Number(limit));
-	},
-
 	browser_dom_query: (_client, { selector, includeHtml = false }) => {
 		const elements = Array.from(document.querySelectorAll(String(selector)));
 		return elements.map((el) => ({
@@ -26,34 +18,61 @@ export const TOOL_HANDLERS: Record<
 		}));
 	},
 
-	browser_dom_snapshot: (_client, { maxChars = 4000 }) => {
-		const text = document.body.innerText || "";
-		return {
-			url: window.location.href,
-			title: document.title,
-			text: text.slice(0, Number(maxChars)),
-			truncated: text.length > Number(maxChars),
-		};
-	},
-
 	browser_network_requests: (_client, { limit = 20 }) => {
 		return getNetworkBuffer().slice(-Number(limit));
 	},
 
-	browser_localstorage_get: (_client, { key, prefix }) => {
-		const result: Record<string, string | null> = {};
-		if (key) {
-			result[String(key)] = localStorage.getItem(String(key));
+	browser_page_info: (_client, { logLimit = 20, logLevel = "all" }) => {
+		let logs = getConsoleBuffer();
+		if (logLevel !== "all") {
+			logs = logs.filter((e) => e.level === logLevel);
 		}
-		if (prefix) {
-			for (let i = 0; i < localStorage.length; i++) {
-				const k = localStorage.key(i);
-				if (k?.startsWith(String(prefix))) {
-					result[k] = localStorage.getItem(k);
+		return {
+			url: window.location.href,
+			title: document.title,
+			width: window.innerWidth,
+			height: window.innerHeight,
+			scrollX: window.scrollX,
+			scrollY: window.scrollY,
+			userAgent: navigator.userAgent,
+			logs: logs.slice(-Number(logLimit)),
+		};
+	},
+
+	browser_storage_get: (_client, { type, key, prefix, name }) => {
+		if (type === "localStorage") {
+			const result: Record<string, string | null> = {};
+			if (key) {
+				result[String(key)] = localStorage.getItem(String(key));
+			}
+			if (prefix) {
+				for (let i = 0; i < localStorage.length; i++) {
+					const k = localStorage.key(i);
+					if (k?.startsWith(String(prefix))) {
+						result[k] = localStorage.getItem(k);
+					}
 				}
 			}
+			return result;
 		}
-		return result;
+
+		if (type === "cookie") {
+			const cookies: Record<string, string> = {};
+			const docCookies = document.cookie;
+			if (docCookies) {
+				for (const cookie of docCookies.split(";")) {
+					const [k, v] = cookie.split("=").map((s) => s.trim());
+					if (k) cookies[k] = decodeURIComponent(v || "");
+				}
+			}
+			if (name) {
+				const targetName = String(name);
+				return { [targetName]: cookies[targetName] || null };
+			}
+			return cookies;
+		}
+
+		return { error: `Unknown type: ${type}. Use 'localStorage' or 'cookie'.` };
 	},
 
 	browser_screenshot: async (client) => {
@@ -82,10 +101,8 @@ export const TOOL_HANDLERS: Record<
 			return { error: `Element not found matching selector: ${selector}` };
 		}
 
-		// Focus the element
 		element.focus();
 
-		// Trigger standard sequence of mouse events for better compatibility
 		const events = [
 			"pointerdown",
 			"mousedown",
@@ -171,33 +188,5 @@ export const TOOL_HANDLERS: Record<
 				scrollY: window.scrollY,
 			};
 		}
-	},
-
-	browser_page_info: () => {
-		return {
-			url: window.location.href,
-			title: document.title,
-			width: window.innerWidth,
-			height: window.innerHeight,
-			scrollX: window.scrollX,
-			scrollY: window.scrollY,
-			userAgent: navigator.userAgent,
-		};
-	},
-
-	browser_cookie_get: (_client, { name }) => {
-		const cookies: Record<string, string> = {};
-		const docCookies = document.cookie;
-		if (docCookies) {
-			for (const cookie of docCookies.split(";")) {
-				const [k, v] = cookie.split("=").map((s) => s.trim());
-				if (k) cookies[k] = decodeURIComponent(v || "");
-			}
-		}
-		if (name) {
-			const targetName = String(name);
-			return { [targetName]: cookies[targetName] || null };
-		}
-		return cookies;
 	},
 };

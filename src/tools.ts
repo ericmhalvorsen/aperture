@@ -4,28 +4,9 @@
  */
 
 export const BROWSER_TOOLS = {
-	browser_console_logs: {
-		description:
-			"Read recent console logs from the browser session. Filter by level (log, warn, error, info).",
-		inputSchema: {
-			type: "object" as const,
-			properties: {
-				level: {
-					type: "string",
-					enum: ["all", "log", "warn", "error", "info"],
-					default: "all",
-				},
-				limit: {
-					type: "integer",
-					default: 50,
-					description: "Max number of log entries to return",
-				},
-			},
-		},
-	},
 	browser_dom_query: {
 		description:
-			"Query the DOM using CSS selectors. Returns text content, attributes, and visibility.",
+			"Query the DOM using a CSS selector. Returns matched elements with their tag, text content, attributes, and visibility. Always prefer targeted selectors (e.g. '#app h1', '.nav-links a') over broad ones like 'body' or 'html'.",
 		inputSchema: {
 			type: "object" as const,
 			properties: {
@@ -36,45 +17,74 @@ export const BROWSER_TOOLS = {
 				includeHtml: {
 					type: "boolean",
 					default: false,
-					description: "Include outer HTML for each match",
+					description: "Include outer HTML for each matched element",
 				},
 			},
 			required: ["selector"],
 		},
 	},
-	browser_dom_snapshot: {
+	browser_network_requests: {
 		description:
-			"Return a text snapshot of the current page (visible text only, truncated).",
+			"Return recent network requests (fetch/XHR) captured by the bridge. Returns an array of request objects with method, URL, status, and timing. Only captures fetch() calls — XHR is not intercepted.",
 		inputSchema: {
 			type: "object" as const,
 			properties: {
-				maxChars: {
+				limit: {
 					type: "integer",
-					default: 4000,
-					description: "Character budget for the snapshot",
+					default: 20,
+					description: "Max number of requests to return",
 				},
 			},
 		},
 	},
-	browser_network_requests: {
+	browser_page_info: {
 		description:
-			"Return recent network requests (XHR/fetch) captured by the bridge.",
+			"Get the current state of the page: URL, title, viewport dimensions, scroll position, user agent, and recent console logs. Use this to orient yourself before querying specific elements.",
 		inputSchema: {
 			type: "object" as const,
 			properties: {
-				limit: { type: "integer", default: 20 },
-				includeResponseBody: { type: "boolean", default: false },
+				logLimit: {
+					type: "integer",
+					default: 20,
+					description: "Max number of console log entries to include",
+				},
+				logLevel: {
+					type: "string",
+					enum: ["all", "log", "warn", "error", "info"],
+					default: "all",
+					description: "Filter console logs by level",
+				},
 			},
 		},
 	},
-	browser_localstorage_get: {
-		description: "Read values from localStorage by key prefix or exact key.",
+	browser_storage_get: {
+		description:
+			"Read values from browser storage. Use type='localStorage' to read localStorage entries (by exact key, prefix, or all). Use type='cookie' to read document cookies (by exact name or all).",
 		inputSchema: {
 			type: "object" as const,
 			properties: {
-				key: { type: "string" },
-				prefix: { type: "string" },
+				type: {
+					type: "string",
+					enum: ["localStorage", "cookie"],
+					description: "Storage type to read from",
+				},
+				key: {
+					type: "string",
+					description:
+						"Exact key to read from localStorage (localStorage only)",
+				},
+				prefix: {
+					type: "string",
+					description:
+						"Key prefix to match in localStorage — returns all keys starting with this string (localStorage only)",
+				},
+				name: {
+					type: "string",
+					description:
+						"Exact cookie name to retrieve (cookie only). If omitted, returns all cookies.",
+				},
 			},
+			required: ["type"],
 		},
 	},
 	browser_screenshot: {
@@ -93,7 +103,7 @@ export const BROWSER_TOOLS = {
 	},
 	browser_evaluate: {
 		description:
-			"Evaluate JavaScript in the page context. NOTE: This requires explicit user approval. If not yet approved, an Aperture dialog will appear in the page — ask the user to click 'Allow' before proceeding.",
+			"Evaluate JavaScript in the page context and return the result as a string. Objects are JSON-serialized. NOTE: This requires explicit user approval. If not yet approved, an Aperture dialog will appear in the page — ask the user to click 'Allow' before proceeding.",
 		inputSchema: {
 			type: "object" as const,
 			properties: {
@@ -106,7 +116,8 @@ export const BROWSER_TOOLS = {
 		},
 	},
 	browser_click: {
-		description: "Click an element on the page using a CSS selector.",
+		description:
+			"Click an element on the page using a CSS selector. Dispatches the full pointer/mouse event sequence (pointerdown, mousedown, pointerup, mouseup, click) for maximum compatibility with frameworks. Returns success or an error if the element is not found.",
 		inputSchema: {
 			type: "object" as const,
 			properties: {
@@ -119,7 +130,8 @@ export const BROWSER_TOOLS = {
 		},
 	},
 	browser_type: {
-		description: "Type text into an input or textarea element.",
+		description:
+			"Type text into an input, textarea, or contenteditable element. Uses native value setters to trigger framework change handlers. Dispatches 'input' and 'change' events after setting the value.",
 		inputSchema: {
 			type: "object" as const,
 			properties: {
@@ -133,7 +145,8 @@ export const BROWSER_TOOLS = {
 		},
 	},
 	browser_scroll: {
-		description: "Scroll the page or a specific element.",
+		description:
+			"Scroll the page or a specific element to a position, or scroll an element into view. Without coordinates, scrolls to the specified x/y offset. With scrollIntoView=true, smoothly scrolls the element into the viewport center.",
 		inputSchema: {
 			type: "object" as const,
 			properties: {
@@ -154,27 +167,6 @@ export const BROWSER_TOOLS = {
 					type: "boolean",
 					description:
 						"If true, scrolls the target element into view (requires selector).",
-				},
-			},
-		},
-	},
-	browser_page_info: {
-		description:
-			"Get metadata about the current page, including URL, title, viewport dimensions, scroll positions, and user agent.",
-		inputSchema: {
-			type: "object" as const,
-			properties: {},
-		},
-	},
-	browser_cookie_get: {
-		description: "Retrieve document cookies.",
-		inputSchema: {
-			type: "object" as const,
-			properties: {
-				name: {
-					type: "string",
-					description:
-						"Optional name of a specific cookie to retrieve. If omitted, returns all cookies.",
 				},
 			},
 		},

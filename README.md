@@ -1,4 +1,4 @@
-# @halvo/aperture
+# @ericmhalvorsen/aperture
 
 > Give MCP-capable AI agents a live view into your local dev session.
 
@@ -29,7 +29,7 @@ No extensions. No CORS hacks. Auto-connect your local dev browser to Claude Code
 ## Installation
 
 ```bash
-npm install -D @halvo/aperture
+npm install -D @ericmhalvorsen/aperture
 ```
 
 ## Try It Out
@@ -50,7 +50,7 @@ Then visit `http://localhost:3000` to see the Aperture badge, and connect your f
 #### Next.js
 ```ts
 // next.config.ts
-import { withAperture } from "@halvo/aperture/next";
+import { withAperture } from "@ericmhalvorsen/aperture/next";
 
 export default withAperture({
   // your existing Next.js config
@@ -61,7 +61,7 @@ export default withAperture({
 #### Vite
 ```ts
 // vite.config.ts
-import { aperture } from "@halvo/aperture/vite";
+import { aperture } from "@ericmhalvorsen/aperture/vite";
 
 export default {
   plugins: [aperture(), /* your other plugins */],
@@ -72,16 +72,16 @@ export default {
 #### Manual / Other Frameworks
 ```bash
 # In a separate terminal, or from your dev script
-npx @halvo/aperture
+npx @ericmhalvorsen/aperture
 # or with a custom port
-APERTURE_PORT=5678 npx @halvo/aperture
+APERTURE_PORT=5678 npx @ericmhalvorsen/aperture
 ```
 
 ### 2. Load the Browser Client
 
 #### React / Next.js (Recommended)
 ```tsx
-import { Aperture } from "@halvo/aperture/react";
+import { Aperture } from "@ericmhalvorsen/aperture/react";
 
 export default function RootLayout({ children }) {
   return (
@@ -97,13 +97,13 @@ export default function RootLayout({ children }) {
 
 #### Self-Registering Import (Vite, webpack, etc.)
 ```typescript
-import "@halvo/aperture/register";
+import "@ericmhalvorsen/aperture/register";
 ```
 Imports once in your browser entry point. Auto-initializes on `localhost`.
 
 #### Manual Initialization
 ```typescript
-import { initAperture } from "@halvo/aperture/client";
+import { initAperture } from "@ericmhalvorsen/aperture/client";
 initAperture({ port: 3456 });
 ```
 
@@ -120,17 +120,16 @@ The client will:
 
 ### 3. Configure Your Agent
 
-The agent connects to the **already-running** server via SSE. It does **not** spawn the server itself.
+You can connect your agent to Aperture using one of two modes:
 
-#### OpenCode / Claude Code / Any MCP Client
+#### Option A: SSE Remote Mode (Recommended for Sidecar Setup)
 
-Add a remote MCP server pointing to the SSE endpoint:
+If Aperture is running as a sidecar inside your Vite/Next.js app, configure your agent to connect directly to the already-running server's SSE endpoint:
 
 ```json
 {
-  "mcp": {
+  "mcpServers": {
     "aperture": {
-      "type": "remote",
       "url": "http://localhost:3456/sse"
     }
   }
@@ -139,21 +138,20 @@ Add a remote MCP server pointing to the SSE endpoint:
 
 The client connects to `http://localhost:3456/sse`, receives an `endpoint` event, and POSTs JSON-RPC messages to the returned `/messages?sessionId=...` URL.
 
-#### Legacy: Spawning the Server (still works)
+#### Option B: Standalone Stdio Mode (If Not Using Vite/Next.js Plugin)
 
-If you prefer the old behavior where the agent spawns the server:
+If you aren't integrating as a sidecar with a web server, you can configure your agent to spawn the Aperture server standalone over `stdin/stdout`. In this mode, the agent starts the Aperture server, which hosts the WebSocket bridge on port 3456 for your browser tab to connect to:
 
 ```json
 {
-  "mcp": {
+  "mcpServers": {
     "aperture": {
-      "command": ["npx", "@halvo/aperture"]
+      "command": "npx",
+      "args": ["-y", "@ericmhalvorsen/aperture", "stdin"]
     }
   }
 }
 ```
-
-This is supported but not recommended — the framework integration is cleaner.
 
 ---
 
@@ -162,16 +160,13 @@ This is supported but not recommended — the framework integration is cleaner.
 | Tool | Action | Requires |
 |------|--------|----------|
 | `browser_list_sessions` | List connected tabs with metadata | Nothing |
-| `browser_console_logs` | Retrieve console buffer | Approval |
 | `browser_dom_query` | CSS query DOM elements | Approval |
-| `browser_dom_snapshot` | Fast text content snapshot | Approval |
+| `browser_page_info` | Page metadata + console logs | Approval |
 | `browser_network_requests` | Audit fetch/XHR history | Approval |
-| `browser_localstorage_get` | Query localStorage | Approval |
-| `browser_cookie_get` | Read cookies | Approval |
+| `browser_storage_get` | Read localStorage or cookies | Approval |
 | `browser_click` | Fire click events | Approval |
 | `browser_type` | Type into inputs | Approval |
 | `browser_scroll` | Scroll page or element | Approval |
-| `browser_page_info` | Read title, URL, viewport | Approval |
 | `browser_screenshot` | Capture viewport | Screenshot checkbox + approval modal if stream inactive |
 | `browser_evaluate` | Run arbitrary JS | Evaluate checkbox |
 
@@ -222,6 +217,15 @@ The server is a **dev sidecar** owned by your app. The agent is a **client** tha
 
 ---
 
+## Debugging
+
+If you're integrating Aperture with a new MCP client or framework and need to see the raw HTTP/SSE traffic (e.g. to diagnose session timeouts or URL resolution issues):
+
+- **Standalone Mode**: Run with the verbose flag: `npx @ericmhalvorsen/aperture -v` or `aperture -v`.
+- **Sidecar Mode**: The server logs basic HTTP requests (`[Aperture HTTP] GET /sse`) and session connect/disconnect events to stderr. When spawned via a framework plugin (like Next.js or Vite), these logs are inherited by the parent process so you can view them directly in your dev server terminal.
+
+---
+
 ## Local Development
 
 ```bash
@@ -246,7 +250,7 @@ pnpm run format
 pnpm link --global
 
 # In your test project:
-pnpm link --global @halvo/aperture
+pnpm link --global @ericmhalvorsen/aperture
 ```
 
 After editing Aperture source, run `pnpm build` in the aperture directory. The consuming project (linked) will pick up the changes on restart.

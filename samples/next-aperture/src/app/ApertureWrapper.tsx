@@ -1,5 +1,5 @@
 "use client";
-import { Aperture } from "@halvo/aperture/react";
+import { Aperture } from "@ericmhalvorsen/aperture/react";
 
 export function ApertureWrapper() {
 	return (

@@ -14,6 +14,6 @@
     "vite": "^8.0.12"
   },
   "dependencies": {
-    "@halvo/aperture": "workspace:*"
+    "@ericmhalvorsen/aperture": "workspace:*"
   }
 }

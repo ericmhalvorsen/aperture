@@ -1,12 +1,18 @@
 {
 	"$schema": "https://biomejs.dev/schemas/2.4.16/schema.json",
 	"vcs": {
-		"enabled": false,
+		"enabled": true,
 		"clientKind": "git",
-		"useIgnoreFile": false
+		"useIgnoreFile": true
 	},
 	"files": {
-		"includes": ["**", "!!**/dist", "!!**/samples", "!!**/coverage"]
+		"includes": [
+			"**",
+			"!!**/dist",
+			"!!**/dist-browser",
+			"!!**/samples",
+			"!!**/coverage"
+		]
 	},
 	"formatter": {
 		"enabled": true,
@@ -15,7 +21,10 @@
 	"linter": {
 		"enabled": true,
 		"rules": {
-			"recommended": true
+			"recommended": true,
+			"suspicious": {
+				"noExplicitAny": "off"
+			}
 		}
 	},
 	"javascript": {
@@ -30,5 +39,21 @@
 				"organizeImports": "on"
 			}
 		}
-	}
+	},
+	"overrides": [
+		{
+			"includes": ["tests/**/*.ts"],
+			"linter": {
+				"rules": {
+					"suspicious": {
+						"noExplicitAny": "off",
+						"noDocumentCookie": "off"
+					},
+					"complexity": {
+						"useLiteralKeys": "off"
+					}
+				}
+			}
+		}
+	]
 }

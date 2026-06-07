@@ -5,45 +5,58 @@ import {
 	type ServerResponse,
 } from "node:http";
 import * as path from "node:path";
-import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
-import { WebSocket, WebSocketServer } from "ws";
-import { BROWSER_TOOLS, type BrowserToolName } from "./tools.js";
-import type {
-	BrowserSession,
-	ClientToServerMessage,
-	MCPRequest,
-	MCPResponse,
-	ToolMetadata,
-} from "./types.js";
+import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { type WebSocket, WebSocketServer } from "ws";
+import {
+	createApertureMcpServer,
+	type SharedServerState,
+} from "./mcp-server.js";
+import {
+	HttpPostTransport,
+	parseJsonRpcBody,
+	SseTransport,
+	WebSocketTransport,
+	writeParseError,
+} from "./transports.js";
+import type { BrowserSession, ClientToServerMessage } from "./types.js";
 
 export class ApertureServer {
 	private wss: WebSocketServer;
 	private sessions: Map<string, BrowserSession> = new Map();
-	private mcpClients: Set<WebSocket> = new Set();
-	private pendingRequests: Map<string, (result: any) => void> = new Map();
-	private mcpInitialized = false;
+	private pendingRequests: Map<string, (result: unknown) => void> = new Map();
+	private sharedState: SharedServerState = { mcpInitialized: false };
 
 	private port: number;
-	private options: { verbose?: boolean; silentStartup?: boolean };
+	private options: {
+		verbose?: boolean;
+		silentStartup?: boolean;
+		stdio?: boolean;
+	};
 
-	// SSE transport sessions for remote MCP clients (e.g. opencode type: "remote")
 	private sseSessions: Map<
 		string,
-		{ res: ServerResponse; lastEventId: number }
+		{ transport: SseTransport; server: Server; res: ServerResponse }
 	> = new Map();
 
 	constructor(
 		port = 3456,
-		options: { verbose?: boolean; silentStartup?: boolean } = {},
+		options: {
+			verbose?: boolean;
+			silentStartup?: boolean;
+			stdio?: boolean;
+		} = {},
 	) {
 		this.port = port;
 		this.options = options;
 		const server = createServer(async (req, res) => {
-			// Add CORS headers for all responses
 			res.setHeader("Access-Control-Allow-Origin", "*");
 			res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-			res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+			res.setHeader(
+				"Access-Control-Allow-Headers",
+				"Content-Type, Mcp-Session-Id",
+			);
 
 			if (req.method === "OPTIONS") {
 				res.writeHead(204);
@@ -51,13 +64,11 @@ export class ApertureServer {
 				return;
 			}
 
-			// SSE endpoint for remote MCP clients
 			if (req.method === "GET" && req.url === "/sse") {
 				await this.handleSSEConnection(req, res);
 				return;
 			}
 
-			// JSON-RPC message endpoint for SSE clients
 			if (req.method === "POST" && req.url?.startsWith("/messages")) {
 				await this.handleSSEMessage(req, res);
 				return;
@@ -78,7 +89,9 @@ export class ApertureServer {
 
 		this.wss = new WebSocketServer({ server, path: "/mcp" });
 		this.setupWSS();
-		this.setupStdio();
+		if (this.options.stdio) {
+			this.setupStdio();
+		}
 
 		server.listen(port, () => {
 			if (!this.options.silentStartup) {
@@ -93,94 +106,110 @@ export class ApertureServer {
 	}
 
 	private async handleHttpPost(req: IncomingMessage, res: ServerResponse) {
-		let body = "";
-		req.on("data", (chunk) => {
-			body += chunk;
-		});
-		req.on("end", async () => {
-			try {
-				const reqData = JSON.parse(body) as MCPRequest;
-				await this.handleMCPRequest(reqData, (response) => {
-					res.writeHead(200, { "Content-Type": "application/json" });
-					res.end(JSON.stringify(response));
-				});
-			} catch {
-				res.writeHead(400, { "Content-Type": "application/json" });
-				res.end(
-					JSON.stringify({
-						jsonrpc: "2.0",
-						id: null,
-						error: { code: -32700, message: "Parse error" },
-					}),
-				);
-			}
-		});
+		try {
+			const message = await parseJsonRpcBody(req);
+			const transport = new HttpPostTransport(res);
+			const mcpServer = createApertureMcpServer(
+				this.sessions,
+				this.pendingRequests,
+				this.sharedState,
+			);
+			await mcpServer.connect(transport);
+			await transport.receiveMessage(message);
+			await transport.close();
+			await mcpServer.close();
+		} catch {
+			writeParseError(res);
+		}
 	}
 
-	private async handleSSEConnection(
-		_req: IncomingMessage,
-		res: ServerResponse,
-	) {
-		const sessionId = crypto.randomUUID();
+	private async handleSSEConnection(req: IncomingMessage, res: ServerResponse) {
+		const transport = new SseTransport(res);
+		const _host = req.headers.host || `localhost:${this.port}`;
+		const messageUrl = `/messages/${transport.sessionId}?sessionId=${transport.sessionId}`;
+
+		const mcpServer = createApertureMcpServer(
+			this.sessions,
+			this.pendingRequests,
+			this.sharedState,
+		);
+
+		// Register session immediately to prevent race conditions from clients POSTing
+		// to the message URL before connect() completes.
+		this.sseSessions.set(transport.sessionId, {
+			transport,
+			server: mcpServer,
+			res,
+		});
+
 		res.writeHead(200, {
 			"Content-Type": "text/event-stream",
 			"Cache-Control": "no-cache, no-transform",
 			Connection: "keep-alive",
+			"Mcp-Session-Id": transport.sessionId,
 		});
-
-		// Send the endpoint event so the client knows where to POST messages
-		const messageUrl = `/messages?sessionId=${sessionId}`;
 		res.write(`event: endpoint\ndata: ${messageUrl}\n\n`);
 
-		this.sseSessions.set(sessionId, { res, lastEventId: 0 });
+		try {
+			await mcpServer.connect(transport);
+		} catch (_err) {
+			this.sseSessions.delete(transport.sessionId);
+			mcpServer.close().catch(() => {});
+			res.end();
+			return;
+		}
 
-		console.error(`[Aperture] SSE session ${sessionId.slice(0, 8)} connected`);
+		console.error(
+			`[Aperture] SSE session ${transport.sessionId.slice(0, 8)} connected`,
+		);
 
-		// Remove session when client disconnects
+		const pingInterval = setInterval(() => {
+			res.write(": ping\n\n");
+		}, 30000);
+
 		res.on("close", () => {
-			this.sseSessions.delete(sessionId);
+			clearInterval(pingInterval);
+			this.sseSessions.delete(transport.sessionId);
+			mcpServer.close().catch(() => {});
 			console.error(
-				`[Aperture] SSE session ${sessionId.slice(0, 8)} disconnected`,
+				`[Aperture] SSE session ${transport.sessionId.slice(0, 8)} disconnected`,
 			);
 		});
 	}
 
 	private async handleSSEMessage(req: IncomingMessage, res: ServerResponse) {
 		const url = new URL(req.url || "/", `http://localhost:${this.port}`);
-		const sessionId = url.searchParams.get("sessionId");
+		const headerSessionId = req.headers["mcp-session-id"];
+
+		const pathParts = url.pathname.split("/");
+		const pathSessionId = pathParts.length > 2 ? pathParts[2] : null;
+
+		const sessionId =
+			pathSessionId ||
+			url.searchParams.get("sessionId") ||
+			(Array.isArray(headerSessionId) ? headerSessionId[0] : headerSessionId);
 		const session = sessionId ? this.sseSessions.get(sessionId) : undefined;
 
 		if (!session) {
-			res.writeHead(404, { "Content-Type": "text/plain" });
+			res.writeHead(404, {
+				"Content-Type": "text/plain",
+				"Mcp-Session-Id": sessionId || "",
+			});
 			res.end("Session not found");
 			return;
 		}
 
-		let body = "";
-		req.on("data", (chunk) => {
-			body += chunk;
-		});
-		req.on("end", async () => {
-			try {
-				const reqData = JSON.parse(body) as MCPRequest;
-				await this.handleMCPRequest(reqData, (response) => {
-					// Send response back through SSE stream with event: message (MCP SDK expects this)
-					const data = JSON.stringify(response);
-					session.res.write(`event: message\ndata: ${data}\n\n`);
-				});
-				res.writeHead(202);
-				res.end("Accepted");
-			} catch {
-				res.writeHead(400, { "Content-Type": "application/json" });
-				res.end(
-					JSON.stringify({
-						jsonrpc: "2.0",
-						id: null,
-						error: { code: -32700, message: "Parse error" },
-					}),
-				);
-			}
-		});
+		try {
+			const message = await parseJsonRpcBody(req);
+			session.transport.receiveMessage(message);
+			res.writeHead(202, {
+				"Content-Type": "text/plain",
+				"Mcp-Session-Id": sessionId,
+			});
+			res.end("Accepted");
+		} catch {
+			writeParseError(res);
+		}
 	}
 
 	private async serveClientScript(res: ServerResponse) {
@@ -188,11 +217,11 @@ export class ApertureServer {
 			const fileUrl = new URL(import.meta.url);
 			const __dirname = path.dirname(fileURLToPath(fileUrl));
 			const possiblePaths = [
-				path.join(__dirname, "../dist-browser/client.js"), // run from dist/
-				path.join(__dirname, "../../dist-browser/client.js"), // run from dist/frameworks/
-				path.join(__dirname, "dist-browser/client.js"), // run from root via ts-node
-				path.join(__dirname, "client.ts"), // fallback to src
-				path.join(__dirname, "../src/client.ts"), // fallback to src
+				path.join(__dirname, "../dist-browser/client.js"),
+				path.join(__dirname, "../../dist-browser/client.js"),
+				path.join(__dirname, "dist-browser/client.js"),
+				path.join(__dirname, "client.ts"),
+				path.join(__dirname, "../src/client.ts"),
 			];
 
 			let clientPath = possiblePaths[0];
@@ -251,7 +280,7 @@ export class ApertureServer {
 					);
 					ws.send(JSON.stringify({ type: "registered", sessionId }));
 
-					if (this.mcpInitialized) {
+					if (this.sharedState.mcpInitialized) {
 						ws.send(JSON.stringify({ type: "agent_connected" }));
 					}
 				}
@@ -272,16 +301,8 @@ export class ApertureServer {
 					if (resolvePending) {
 						resolvePending(msg.result);
 					}
-					// Forward result back to the MCP client that made the request (via WebSocket if listening)
-					this.broadcastToMCP({
-						type: "browser_result",
-						requestId: msg.requestId,
-						result: msg.result,
-					});
 				}
-			} catch {
-				// ignore malformed
-			}
+			} catch {}
 		});
 
 		ws.on("close", () => {
@@ -290,449 +311,44 @@ export class ApertureServer {
 	}
 
 	private handleMCPConnection(ws: WebSocket) {
-		this.mcpClients.add(ws);
-
-		ws.on("message", (raw) => {
-			try {
-				const req: MCPRequest = JSON.parse(raw.toString());
-				this.handleMCPRequest(req, (res) => {
-					if (ws.readyState === WebSocket.OPEN) {
-						ws.send(JSON.stringify(res));
-					}
-				});
-			} catch {
-				ws.send(
-					JSON.stringify({
-						jsonrpc: "2.0",
-						id: null,
-						error: { code: -32700, message: "Parse error" },
-					}),
-				);
-			}
+		const transport = new WebSocketTransport(ws);
+		const mcpServer = createApertureMcpServer(
+			this.sessions,
+			this.pendingRequests,
+			this.sharedState,
+		);
+		mcpServer.connect(transport).catch((err: Error) => {
+			console.error("[Aperture] MCP connection error:", err.message);
 		});
 
 		ws.on("close", () => {
-			this.mcpClients.delete(ws);
+			mcpServer.close().catch(() => {});
 		});
-
-		// Send initialization capabilities for legacy clients
-		ws.send(
-			JSON.stringify({
-				jsonrpc: "2.0",
-				id: 0,
-				result: {
-					protocolVersion: "2024-11-05",
-					capabilities: {},
-					serverInfo: { name: "aperture", version: "0.1.0" },
-				},
-			}),
-		);
 	}
 
 	private setupStdio() {
-		const rl = createInterface({
-			input: process.stdin,
-			output: process.stdout,
-			terminal: false,
-		});
-
-		rl.on("line", (line) => {
-			if (!line.trim()) return;
-			try {
-				const req: MCPRequest = JSON.parse(line);
-				this.handleMCPRequest(req, (res) => {
-					process.stdout.write(`${JSON.stringify(res)}\n`);
-				});
-			} catch (_err) {
-				process.stdout.write(
-					`${JSON.stringify({
-						jsonrpc: "2.0",
-						id: null,
-						error: { code: -32700, message: "Parse error" },
-					})}\n`,
-				);
-			}
+		const transport = new StdioServerTransport();
+		const mcpServer = createApertureMcpServer(
+			this.sessions,
+			this.pendingRequests,
+			this.sharedState,
+		);
+		mcpServer.connect(transport).catch((err: Error) => {
+			console.error("[Aperture] Stdio connection error:", err.message);
 		});
 
 		process.on("SIGINT", () => {
+			mcpServer.close().catch(() => {});
 			process.exit(0);
 		});
 
 		process.on("SIGTERM", () => {
+			mcpServer.close().catch(() => {});
 			process.exit(0);
-		});
-	}
-
-	private async handleMCPRequest(
-		req: MCPRequest,
-		send: (res: MCPResponse) => void,
-	) {
-		if (req.method === "initialize") {
-			this.handleInitialize(req, send);
-			return;
-		}
-
-		if (req.method === "notifications/initialized") {
-			return;
-		}
-
-		if (req.method === "tools/list") {
-			this.handleToolsList(req, send);
-			return;
-		}
-
-		if (req.method === "tools/call") {
-			await this.handleToolsCall(req, send);
-			return;
-		}
-
-		send({
-			jsonrpc: "2.0",
-			id: req.id,
-			error: { code: -32601, message: "Method not found" },
-		});
-	}
-
-	private handleInitialize(req: MCPRequest, send: (res: MCPResponse) => void) {
-		this.mcpInitialized = true;
-		const agentConnectedMsg = JSON.stringify({ type: "agent_connected" });
-		this.sessions.forEach((session) => {
-			if (session.ws.readyState === WebSocket.OPEN) {
-				session.ws.send(agentConnectedMsg);
-			}
-		});
-
-		send({
-			jsonrpc: "2.0",
-			id: req.id,
-			result: {
-				protocolVersion: "2024-11-05",
-				capabilities: {
-					tools: {},
-				},
-				serverInfo: { name: "aperture", version: "0.1.0" },
-			},
-		});
-	}
-
-	private handleToolsList(req: MCPRequest, send: (res: MCPResponse) => void) {
-		const tools = Object.entries(BROWSER_TOOLS).map(([name, def]) => ({
-			name,
-			description: def.description,
-			inputSchema: def.inputSchema,
-		})) as Array<ToolMetadata>;
-
-		const addedCustomTools = new Set<string>();
-		for (const session of this.sessions.values()) {
-			if (session.approved && session.customTools) {
-				for (const ct of session.customTools) {
-					if (!addedCustomTools.has(ct.name)) {
-						addedCustomTools.add(ct.name);
-						tools.push(ct);
-					}
-				}
-			}
-		}
-
-		send({ jsonrpc: "2.0", id: req.id, result: { tools } });
-	}
-
-	private async handleToolsCall(
-		req: MCPRequest,
-		send: (res: MCPResponse) => void,
-	) {
-		const params = req.params as
-			| { name: string; arguments?: Record<string, unknown> }
-			| undefined;
-		const toolName = params?.name as string;
-
-		if (toolName === "browser_list_sessions") {
-			const sessions = Array.from(this.sessions.entries()).map(([id, s]) => ({
-				sessionId: id,
-				url: s.url,
-				title: s.title,
-				approved: s.approved,
-				lastActiveAt: s.lastActiveAt,
-				capabilities: Array.from(s.capabilities),
-			}));
-			send({
-				jsonrpc: "2.0",
-				id: req.id,
-				result: this.wrapMcpResult({ sessions }),
-			});
-			return;
-		}
-
-		let isValid = !!BROWSER_TOOLS[toolName as BrowserToolName];
-		if (!isValid) {
-			for (const session of this.sessions.values()) {
-				if (
-					session.approved &&
-					session.customTools?.some((t) => t.name === toolName)
-				) {
-					isValid = true;
-					break;
-				}
-			}
-		}
-
-		if (!toolName || !isValid) {
-			send({
-				jsonrpc: "2.0",
-				id: req.id,
-				error: { code: -32601, message: "Tool not found" },
-			});
-			return;
-		}
-
-		const args = (params?.arguments || {}) as Record<string, unknown>;
-		const sessionId = args.sessionId as string | undefined;
-
-		// If a specific session was requested, use it
-		if (sessionId) {
-			const session = this.sessions.get(sessionId);
-			if (!session || session.ws.readyState !== WebSocket.OPEN) {
-				send({
-					jsonrpc: "2.0",
-					id: req.id,
-					error: { code: -32000, message: "Session not found or closed" },
-				});
-				return;
-			}
-			await this.forwardToolCall(
-				req,
-				send,
-				session,
-				toolName,
-				params?.arguments || {},
-			);
-			return;
-		}
-
-		// Session selection: use the most recently active approved session
-		const lastActiveSession = this.getLastActiveSession();
-		if (lastActiveSession) {
-			await this.forwardToolCall(
-				req,
-				send,
-				lastActiveSession,
-				toolName,
-				params?.arguments || {},
-			);
-			return;
-		}
-
-		// Multiple approved sessions with no clear last-active winner — ambiguous
-		const approvedCount = Array.from(this.sessions.values()).filter(
-			(s) => s.approved && s.ws.readyState === WebSocket.OPEN,
-		).length;
-		if (approvedCount > 1) {
-			send({
-				jsonrpc: "2.0",
-				id: req.id,
-				error: {
-					code: -32000,
-					message:
-						"Multiple approved browser sessions are connected. Use browser_list_sessions to get sessionIds, then pass sessionId in subsequent tool calls.",
-				},
-			});
-			return;
-		}
-
-		// Zero approved sessions — forward to ALL connected sessions so
-		// the approval modal pops on every tab. First to approve wins.
-		const connectedSessions = Array.from(this.sessions.values()).filter(
-			(s) => s.ws.readyState === WebSocket.OPEN,
-		);
-		if (connectedSessions.length === 0) {
-			send({
-				jsonrpc: "2.0",
-				id: req.id,
-				error: {
-					code: -32000,
-					message:
-						"No browser session connected. Ask the user to enable aperture in their dev session.",
-				},
-			});
-			return;
-		}
-
-		const requestId = crypto.randomUUID();
-		for (const s of connectedSessions) {
-			s.ws.send(
-				JSON.stringify({
-					type: "tool_call",
-					requestId,
-					tool: toolName,
-					args: params?.arguments || {},
-				}),
-			);
-		}
-
-		const result = await this.waitForFirstBrowserResult(requestId, 60000);
-		if (result) {
-			send({ jsonrpc: "2.0", id: req.id, result });
-		} else {
-			send({
-				jsonrpc: "2.0",
-				id: req.id,
-				error: {
-					code: -32002,
-					message:
-						"Browser session did not respond in time. The user may have dismissed the approval dialog.",
-				},
-			});
-		}
-	}
-
-	private async forwardToolCall(
-		req: MCPRequest,
-		send: (res: MCPResponse) => void,
-		session: BrowserSession,
-		toolName: string,
-		args: Record<string, unknown>,
-	) {
-		if (
-			toolName === "browser_evaluate" &&
-			!session.capabilities.has("evaluate")
-		) {
-			send({
-				jsonrpc: "2.0",
-				id: req.id,
-				error: {
-					code: -32001,
-					message:
-						"browser_evaluate requires explicit approval. Prompt the user to allow JS evaluation.",
-				},
-			});
-			return;
-		}
-
-		const requestId = crypto.randomUUID();
-		session.ws.send(
-			JSON.stringify({
-				type: "tool_call",
-				requestId,
-				tool: toolName,
-				args,
-			}),
-		);
-
-		const result = await this.waitForBrowserResult(requestId, 15000); // TODO v2: 60s + listen for 'accepted' event
-		if (result) {
-			send({ jsonrpc: "2.0", id: req.id, result: this.wrapMcpResult(result) });
-		} else {
-			send({
-				jsonrpc: "2.0",
-				id: req.id,
-				error: {
-					code: -32002,
-					message: "Browser session did not respond in time.",
-				},
-			});
-		}
-	}
-
-	private getApprovedSession(sessionId?: string): BrowserSession | undefined {
-		// Specific session requested
-		if (sessionId) {
-			const session = this.sessions.get(sessionId);
-			if (
-				session &&
-				session.approved &&
-				session.ws.readyState === WebSocket.OPEN
-			) {
-				return session;
-			}
-			return undefined;
-		}
-
-		// Return the sole approved session, or undefined if multiple/none
-		let found: BrowserSession | undefined;
-		for (const session of this.sessions.values()) {
-			if (session.approved && session.ws.readyState === WebSocket.OPEN) {
-				if (found) return undefined; // Multiple approved sessions — must specify sessionId
-				found = session;
-			}
-		}
-		return found;
-	}
-
-	private getLastActiveSession(): BrowserSession | undefined {
-		let best: BrowserSession | undefined;
-		for (const session of this.sessions.values()) {
-			if (
-				session.approved &&
-				session.ws.readyState === WebSocket.OPEN &&
-				(!best || session.lastActiveAt > best.lastActiveAt)
-			) {
-				best = session;
-			}
-		}
-		return best;
-	}
-
-	/**
-	 * Wrap a raw tool result into MCP CallToolResult format.
-	 * Opencode expects { content: [{ type: "text", text: ... }] }
-	 */
-	private wrapMcpResult(result: unknown): {
-		content: Array<{ type: "text"; text: string }>;
-	} {
-		const text =
-			typeof result === "string" ? result : JSON.stringify(result, null, 2);
-		return { content: [{ type: "text", text }] };
-	}
-
-	private waitForBrowserResult(
-		requestId: string,
-		timeoutMs: number,
-	): Promise<unknown | null> {
-		return new Promise((resolve) => {
-			const timer = setTimeout(() => {
-				this.pendingRequests.delete(requestId);
-				resolve(null);
-			}, timeoutMs);
-
-			this.pendingRequests.set(requestId, (result) => {
-				clearTimeout(timer);
-				this.pendingRequests.delete(requestId);
-				resolve(result);
-			});
-		});
-	}
-
-	private waitForFirstBrowserResult(
-		requestId: string,
-		timeoutMs: number,
-	): Promise<unknown | null> {
-		return new Promise((resolve) => {
-			const timer = setTimeout(() => {
-				this.pendingRequests.delete(requestId);
-				resolve(null);
-			}, timeoutMs);
-
-			// Wrap the resolve so it only fires once (first session to respond wins)
-			let settled = false;
-			this.pendingRequests.set(requestId, (result) => {
-				if (settled) return;
-				settled = true;
-				clearTimeout(timer);
-				this.pendingRequests.delete(requestId);
-				resolve(result);
-			});
-		});
-	}
-
-	private broadcastToMCP(msg: unknown) {
-		const data = JSON.stringify(msg);
-		this.mcpClients.forEach((ws) => {
-			if (ws.readyState === WebSocket.OPEN) ws.send(data);
 		});
 	}
 }
 
-// If run directly, start server
 if (import.meta.url === `file://${process.argv[1]}`) {
 	const port = Number(process.env.APERTURE_PORT) || 3456;
 	new ApertureServer(port);

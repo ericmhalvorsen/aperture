@@ -2,8 +2,8 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import {
 	injectStyles,
+	showApprovalDialog,
 	showStatusDialog,
-	showVanillaApprovalDialog,
 } from "../src/client/ui.js";
 
 describe("UI Module", () => {
@@ -21,9 +21,9 @@ describe("UI Module", () => {
 		expect(styles).toHaveLength(1);
 	});
 
-	test("showVanillaApprovalDialog renders and handles denial", async () => {
+	test("showApprovalDialog renders and handles denial", async () => {
 		const onStateChange = vi.fn();
-		const promise = showVanillaApprovalDialog("TestAgent", onStateChange);
+		const promise = showApprovalDialog("TestAgent", onStateChange);
 
 		const overlay = document.getElementById("aperture-dialog-overlay");
 		expect(overlay).not.toBeNull();
@@ -42,9 +42,9 @@ describe("UI Module", () => {
 		expect(result.approved).toBe(false);
 	});
 
-	test("showVanillaApprovalDialog handles allow", async () => {
+	test("showApprovalDialog handles allow", async () => {
 		const onStateChange = vi.fn();
-		const promise = showVanillaApprovalDialog("TestAgent", onStateChange);
+		const promise = showApprovalDialog("TestAgent", onStateChange);
 
 		const overlay = document.getElementById("aperture-dialog-overlay");
 
@@ -72,9 +72,9 @@ describe("UI Module", () => {
 		expect(result.capabilities).not.toContain("screenshot");
 	});
 
-	test("showVanillaApprovalDialog handles escape key", async () => {
+	test("showApprovalDialog handles escape key", async () => {
 		const onStateChange = vi.fn();
-		const promise = showVanillaApprovalDialog("TestAgent", onStateChange);
+		const promise = showApprovalDialog("TestAgent", onStateChange);
 
 		// Press escape
 		document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));

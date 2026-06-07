@@ -1,60 +1,80 @@
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import WebSocket from "ws";
 
 test.describe("Aperture Integration", () => {
 	let ws: WebSocket;
+	let aperturePort: number;
+
+	test.beforeEach((_args, testInfo) => {
+		if (testInfo.project.name === "next-aperture") aperturePort = 3456;
+		else if (testInfo.project.name === "vanilla-aperture") aperturePort = 3457;
+		else if (testInfo.project.name === "vite-aperture") aperturePort = 3458;
+		else aperturePort = 3456; // fallback for standalone runs
+	});
 
 	test.afterEach(() => {
 		if (ws) {
 			ws.close();
 			// Small delay to ensure server processes the disconnect
-			new Promise(resolve => setTimeout(resolve, 50));
+			new Promise((resolve) => setTimeout(resolve, 50));
 		}
 	});
 
 	test("shows badge and allows approval flow", async ({ page }) => {
-		page.on("console", msg => console.log(`[Browser Console] ${msg.type()}: ${msg.text()}`));
-		page.on("pageerror", err => console.error(`[Browser Error]: ${err.message}`));
-		page.on("response", res => console.log(`[Network] ${res.status()} ${res.url()}`));
+		page.on("console", (msg) =>
+			console.log(`[Browser Console] ${msg.type()}: ${msg.text()}`),
+		);
+		page.on("pageerror", (err) =>
+			console.error(`[Browser Error]: ${err.message}`),
+		);
+		page.on("response", (res) =>
+			console.log(`[Network] ${res.status()} ${res.url()}`),
+		);
 		await page.goto("/");
 
-		// Badge should eventually appear and say connected
+		// Badge should eventually appear
 		const badge = page.locator("#aperture-badge");
 		await expect(badge).toBeVisible();
-		await expect(badge).toContainText("Aperture");
 
 		// Simulate an MCP Agent connecting
-		ws = new WebSocket("ws://localhost:3456/mcp");
-		await new Promise(resolve => ws.on("open", resolve));
+		ws = new WebSocket(`ws://localhost:${aperturePort}/mcp`);
+		await new Promise((resolve) => ws.on("open", resolve));
 
 		// Send initialize request
-		ws.send(JSON.stringify({
-			jsonrpc: "2.0",
-			id: 1,
-			method: "initialize",
-			params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "test-agent", version: "1.0" } }
-		}));
+		ws.send(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				method: "initialize",
+				params: {
+					protocolVersion: "2024-11-05",
+					capabilities: {},
+					clientInfo: { name: "test-agent", version: "1.0" },
+				},
+			}),
+		);
 
-		// Badge should eventually appear and say connected
+		// Badge should remain visible
 		await expect(badge).toBeVisible();
-		await expect(badge).toContainText("Aperture");
 
 		// Wait for dialog overlay after sending agent_connected
 		const overlay = page.locator("#aperture-dialog-overlay");
 		await expect(overlay).toBeVisible();
 
 		// Check dialog contents
-		await expect(page.locator(".aperture-title")).toHaveText("Aperture");
-		await expect(page.locator(".aperture-subtitle")).toHaveText("MCP Agent wants to access this tab");
+		await expect(page.locator(".aperture-title")).toHaveText("Agent Bridge");
+		await expect(page.locator(".aperture-subtitle")).toHaveText(
+			"MCP Agent wants to access this tab",
+		);
 
 		// Wait for the "Allow" button and click it
 		const allowBtn = page.locator("#aperture-btn-allow");
 		await expect(allowBtn).toBeVisible();
-		
+
 		// Remove screenshot checkbox to prevent browser permission prompts in headless test
 		const screenshotCheckbox = page.locator("#aperture-allow-screenshot");
 		await screenshotCheckbox.uncheck();
-		
+
 		await allowBtn.click();
 
 		// Overlay should disappear
@@ -62,11 +82,13 @@ test.describe("Aperture Integration", () => {
 
 		// You can open status dialog by clicking the badge
 		await badge.click();
-		
+
 		// Status dialog should appear
 		await expect(overlay).toBeVisible();
-		await expect(page.locator(".aperture-title")).toHaveText("Aperture Settings");
-		
+		await expect(page.locator(".aperture-title")).toHaveText(
+			"Agent Bridge Settings",
+		);
+
 		// It should show Approved
 		await expect(page.locator(".aperture-body")).toContainText("Approved");
 
@@ -80,16 +102,22 @@ test.describe("Aperture Integration", () => {
 		await page.goto("/");
 
 		// Simulate an MCP Agent connecting
-		ws = new WebSocket("ws://localhost:3456/mcp");
-		await new Promise(resolve => ws.on("open", resolve));
+		ws = new WebSocket(`ws://localhost:${aperturePort}/mcp`);
+		await new Promise((resolve) => ws.on("open", resolve));
 
 		// Send initialize request
-		ws.send(JSON.stringify({
-			jsonrpc: "2.0",
-			id: 1,
-			method: "initialize",
-			params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "test-agent", version: "1.0" } }
-		}));
+		ws.send(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				method: "initialize",
+				params: {
+					protocolVersion: "2024-11-05",
+					capabilities: {},
+					clientInfo: { name: "test-agent", version: "1.0" },
+				},
+			}),
+		);
 
 		const overlay = page.locator("#aperture-dialog-overlay");
 		await expect(overlay).toBeVisible();
@@ -109,7 +137,7 @@ test.describe("Aperture Integration", () => {
 		// Click allow from the status dialog to test state change
 		await page.locator("#aperture-status-btn-allow").click();
 		await expect(overlay).not.toBeVisible();
-		
+
 		// Open again and it should be approved
 		await badge.click();
 		await expect(page.locator(".aperture-body")).toContainText("Approved");
@@ -117,23 +145,29 @@ test.describe("Aperture Integration", () => {
 
 	test("can hide the badge", async ({ page }) => {
 		await page.goto("/");
-		
+
 		const badge = page.locator("#aperture-badge");
 		await expect(badge).toBeVisible();
 
 		// Simulate an MCP Agent connecting
-		ws = new WebSocket("ws://localhost:3456/mcp");
-		await new Promise(resolve => ws.on("open", resolve));
-		ws.send(JSON.stringify({
-			jsonrpc: "2.0",
-			id: 1,
-			method: "initialize",
-			params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "test-agent", version: "1.0" } }
-		}));
+		ws = new WebSocket(`ws://localhost:${aperturePort}/mcp`);
+		await new Promise((resolve) => ws.on("open", resolve));
+		ws.send(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				method: "initialize",
+				params: {
+					protocolVersion: "2024-11-05",
+					capabilities: {},
+					clientInfo: { name: "test-agent", version: "1.0" },
+				},
+			}),
+		);
 
 		const overlay = page.locator("#aperture-dialog-overlay");
 		await expect(overlay).toBeVisible();
-		
+
 		// Deny it first to dismiss the popup
 		await page.getByRole("button", { name: "Deny" }).click();
 		await expect(overlay).not.toBeVisible();

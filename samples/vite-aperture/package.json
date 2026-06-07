@@ -4,14 +4,14 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --port 5174 --strictPort",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@halvo/aperture": "workspace:*",
+    "@ericmhalvorsen/aperture": "workspace:*",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
   },

@@ -4,8 +4,6 @@ export interface ToolMetadata {
 	inputSchema: object;
 }
 
-// WebSocket Message Types between Browser Client and Aperture Server
-
 interface WSRegisterMessage {
 	type: "register";
 	url: string;
@@ -46,12 +44,6 @@ interface WSResultMessage {
 	result: unknown;
 }
 
-interface WSBrowserResultMessage {
-	type: "browser_result";
-	requestId: string;
-	result: unknown;
-}
-
 export type ClientToServerMessage =
 	| WSRegisterMessage
 	| WSApprovalMessage
@@ -62,7 +54,6 @@ export type ServerToClientMessage =
 	| WSAgentConnectedMessage
 	| WSToolCallMessage;
 
-// Internal Server session representation
 export interface BrowserSession {
 	ws: import("ws").WebSocket;
 	url: string;
@@ -71,19 +62,4 @@ export interface BrowserSession {
 	lastActiveAt: number;
 	capabilities: Set<string>;
 	customTools?: ToolMetadata[];
-}
-
-// MCP JSON-RPC Types
-export interface MCPRequest {
-	jsonrpc: "2.0";
-	id: number | string;
-	method: string;
-	params?: unknown;
-}
-
-export interface MCPResponse {
-	jsonrpc: "2.0";
-	id: number | string | null;
-	result?: unknown;
-	error?: { code: number; message: string };
 }

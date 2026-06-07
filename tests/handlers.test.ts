@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { TOOL_HANDLERS } from "../src/client/handlers.js";
 import type { ApertureClient } from "../src/client.js";
 
@@ -44,31 +44,60 @@ describe("Built-in Tool Handlers", () => {
 		expect(result[0].html).toContain('<div id="test-id"');
 	});
 
-	test("browser_dom_snapshot", async () => {
-		document.body.innerText = "Snapshot content here.";
-		const handler = TOOL_HANDLERS.browser_dom_snapshot;
-
-		const result = await handler(mockClient, { maxChars: 10 });
-		expect(result.url).toBe("http://localhost:3000/");
-		expect(result.title).toBe("Test Page");
-		expect(result.text).toBe("Snapshot c");
-		expect(result.truncated).toBe(true);
+	test("browser_page_info", async () => {
+		const handler = TOOL_HANDLERS.browser_page_info;
+		const res = await handler(mockClient, {});
+		expect(res.url).toBe("http://localhost:3000/");
+		expect(res.title).toBe("Test Page");
+		expect(res.width).toBeDefined();
+		expect(res.height).toBeDefined();
+		expect(res.logs).toBeDefined();
+		expect(Array.isArray(res.logs)).toBe(true);
 	});
 
-	test("browser_localstorage_get", async () => {
+	test("browser_storage_get localStorage by key", async () => {
 		localStorage.setItem("test-key", "test-val");
+
+		const handler = TOOL_HANDLERS.browser_storage_get;
+		const res = await handler(mockClient, {
+			type: "localStorage",
+			key: "test-key",
+		});
+		expect(res["test-key"]).toBe("test-val");
+	});
+
+	test("browser_storage_get localStorage by prefix", async () => {
 		localStorage.setItem("prefix-1", "val1");
 		localStorage.setItem("prefix-2", "val2");
 
-		const handler = TOOL_HANDLERS.browser_localstorage_get;
+		const handler = TOOL_HANDLERS.browser_storage_get;
+		const res = await handler(mockClient, {
+			type: "localStorage",
+			prefix: "prefix-",
+		});
+		expect(res["prefix-1"]).toBe("val1");
+		expect(res["prefix-2"]).toBe("val2");
+		expect(res["test-key"]).toBeUndefined();
+	});
 
-		const res1 = await handler(mockClient, { key: "test-key" });
-		expect(res1["test-key"]).toBe("test-val");
+	test("browser_storage_get cookie", async () => {
+		document.cookie = "cookie1=val1; path=/";
+		document.cookie = "cookie2=val2; path=/";
 
-		const res2 = await handler(mockClient, { prefix: "prefix-" });
-		expect(res2["prefix-1"]).toBe("val1");
-		expect(res2["prefix-2"]).toBe("val2");
-		expect(res2["test-key"]).toBeUndefined();
+		const handler = TOOL_HANDLERS.browser_storage_get;
+		const res1 = await handler(mockClient, { type: "cookie" });
+		expect(res1["cookie1"]).toBe("val1");
+		expect(res1["cookie2"]).toBe("val2");
+
+		const res2 = await handler(mockClient, { type: "cookie", name: "cookie1" });
+		expect(res2["cookie1"]).toBe("val1");
+		expect(res2["cookie2"]).toBeUndefined();
+	});
+
+	test("browser_storage_get unknown type returns error", async () => {
+		const handler = TOOL_HANDLERS.browser_storage_get;
+		const res = await handler(mockClient, { type: "unknown" });
+		expect(res.error).toContain("Unknown type");
 	});
 
 	test("browser_screenshot success", async () => {
@@ -218,29 +247,5 @@ describe("Built-in Tool Handlers", () => {
 		expect(intoViewCalled).toBe(true);
 
 		window.scrollTo = origScrollTo;
-	});
-
-	test("browser_page_info", async () => {
-		const handler = TOOL_HANDLERS.browser_page_info;
-		const res = await handler(mockClient, {});
-		expect(res.url).toBe("http://localhost:3000/");
-		expect(res.title).toBe("Test Page");
-		expect(res.width).toBeDefined();
-		expect(res.height).toBeDefined();
-	});
-
-	test("browser_cookie_get", async () => {
-		// jsdom supports document.cookie
-		document.cookie = "cookie1=val1; path=/";
-		document.cookie = "cookie2=val2; path=/";
-
-		const handler = TOOL_HANDLERS.browser_cookie_get;
-		const res1 = await handler(mockClient, {});
-		expect(res1["cookie1"]).toBe("val1");
-		expect(res1["cookie2"]).toBe("val2");
-
-		const res2 = await handler(mockClient, { name: "cookie1" });
-		expect(res2["cookie1"]).toBe("val1");
-		expect(res2["cookie2"]).toBeUndefined();
 	});
 });

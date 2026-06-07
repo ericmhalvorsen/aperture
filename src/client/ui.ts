@@ -5,10 +5,6 @@ export function injectStyles() {
 	const style = document.createElement("style");
 	style.id = styleId;
 	style.textContent = `
-    /* Aperture — self-contained dev-tool overlay styles.
-       Uses CSS custom properties so the dialog adapts to the host
-       page's color-scheme preference while remaining isolated. */
-
     :root {
       --ap-bg: #0f0f10;
       --ap-bg-glass: rgba(15, 15, 16, 0.92);
@@ -205,21 +201,26 @@ export function injectStyles() {
     }
 
     #aperture-dialog .aperture-body {
+      display: block;
       font-size: 13px;
       color: var(--ap-text-secondary);
       margin-bottom: 20px;
     }
 
     #aperture-dialog .aperture-list {
-      margin: 8px 0 0 18px;
+      display: block;
+      margin: 12px 0 0 24px;
       padding: 0;
-      color: var(--ap-text-muted);
+      color: var(--ap-text-secondary);
       list-style-type: disc;
     }
 
     #aperture-dialog .aperture-list li {
-      margin-bottom: 5px;
-      font-size: 12px;
+      display: list-item;
+      color: inherit;
+      margin-bottom: 6px;
+      font-size: 13px;
+      line-height: 1.4;
     }
 
     #aperture-dialog .aperture-options {
@@ -287,6 +288,7 @@ export function injectStyles() {
     }
 
     #aperture-dialog .aperture-btn {
+      display: inline-block;
       padding: 8px 14px;
       font-size: 13px;
       font-weight: 500;
@@ -326,7 +328,64 @@ export function injectStyles() {
 
 import { html, render } from "lit-html";
 
-export function showVanillaApprovalDialog(
+/* ── Shared helpers ─────────────────────────────────────────────── */
+
+function createDialogOverlay(onDismiss?: () => void) {
+	const overlay = document.createElement("div");
+	overlay.id = "aperture-dialog-overlay";
+	document.body.appendChild(overlay);
+
+	const cleanup = () => {
+		overlay.classList.remove("active");
+		setTimeout(() => {
+			overlay.remove();
+		}, 300);
+		document.removeEventListener("keydown", escHandler);
+	};
+
+	const escHandler = (e: KeyboardEvent) => {
+		if (e.key === "Escape") {
+			cleanup();
+			onDismiss?.();
+		}
+	};
+	document.addEventListener("keydown", escHandler);
+
+	const outsideClickHandler = (e: MouseEvent) => {
+		if (e.target === overlay) {
+			cleanup();
+			onDismiss?.();
+		}
+	};
+	overlay.addEventListener("click", outsideClickHandler);
+
+	const activate = () => {
+		setTimeout(() => {
+			overlay.classList.add("active");
+		}, 10);
+	};
+
+	return { overlay, cleanup, activate };
+}
+
+async function requestDisplayMedia(): Promise<MediaStream | null> {
+	try {
+		return await navigator.mediaDevices.getDisplayMedia({
+			video: { displaySurface: "browser" },
+			audio: false,
+		} as { video: { displaySurface: string }; audio: false });
+	} catch (err) {
+		console.warn(
+			"[Aperture] Failed to acquire screen share stream for screenshots:",
+			err,
+		);
+		return null;
+	}
+}
+
+/* ── Modal A: Initial approval dialog ───────────────────────────── */
+
+export function showApprovalDialog(
 	agentName: string,
 	onApprovalStateChange: (state: {
 		stream?: MediaStream | null;
@@ -344,37 +403,13 @@ export function showVanillaApprovalDialog(
 			return;
 		}
 
-		const overlay = document.createElement("div");
-		overlay.id = "aperture-dialog-overlay";
-		document.body.appendChild(overlay);
+		const { overlay, cleanup, activate } = createDialogOverlay(() => {
+			resolve({ approved: false, capabilities: [], dismissed: true });
+		});
 
 		let allowScreenshot = true;
 		let allowEval = true;
 		let remember24h = true;
-
-		const cleanup = () => {
-			overlay.classList.remove("active");
-			setTimeout(() => {
-				overlay.remove();
-			}, 300);
-			document.removeEventListener("keydown", escHandler);
-		};
-
-		const escHandler = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				cleanup();
-				resolve({ approved: false, capabilities: [], dismissed: true });
-			}
-		};
-		document.addEventListener("keydown", escHandler);
-
-		const outsideClickHandler = (e: MouseEvent) => {
-			if (e.target === overlay) {
-				cleanup();
-				resolve({ approved: false, capabilities: [], dismissed: true });
-			}
-		};
-		overlay.addEventListener("click", outsideClickHandler);
 
 		const handleDismiss = () => {
 			cleanup();
@@ -392,18 +427,10 @@ export function showVanillaApprovalDialog(
 			if (allowEval) capabilities.push("evaluate");
 
 			if (allowScreenshot) {
-				try {
-					const stream = await navigator.mediaDevices.getDisplayMedia({
-						video: { displaySurface: "browser" },
-						audio: false,
-					} as any);
+				const stream = await requestDisplayMedia();
+				if (stream) {
 					onApprovalStateChange({ stream });
 					capabilities.push("screenshot");
-				} catch (err) {
-					console.warn(
-						"[Aperture] Failed to acquire screen share stream for screenshots:",
-						err,
-					);
 				}
 			}
 
@@ -417,7 +444,7 @@ export function showVanillaApprovalDialog(
 					<div class="aperture-header">
 						<div class="aperture-icon">🔌</div>
 						<div class="aperture-title-container">
-							<h3 class="aperture-title">Aperture</h3>
+							<h3 class="aperture-title">Agent Bridge</h3>
 							<p class="aperture-subtitle">${agentName} wants to access this tab</p>
 						</div>
 					</div>
@@ -500,12 +527,11 @@ export function showVanillaApprovalDialog(
 		};
 
 		renderDialog();
-
-		setTimeout(() => {
-			overlay.classList.add("active");
-		}, 10);
+		activate();
 	});
 }
+
+/* ── Modal B: Status / settings dialog ──────────────────────────── */
 
 export function showStatusDialog(options: {
 	wsReadyState: number;
@@ -525,34 +551,12 @@ export function showStatusDialog(options: {
 	if (typeof document === "undefined") return;
 	if (document.getElementById("aperture-dialog-overlay")) return;
 
-	const overlay = document.createElement("div");
-	overlay.id = "aperture-dialog-overlay";
-	document.body.appendChild(overlay);
+	const { overlay, cleanup } = createDialogOverlay();
 
 	const isMac = navigator.platform.toLowerCase().includes("mac");
 	const shortcut = isMac ? "Cmd+Shift+A" : "Ctrl+Shift+A";
 
-	const cleanup = () => {
-		overlay.classList.remove("active");
-		setTimeout(() => {
-			overlay.remove();
-		}, 300);
-		document.removeEventListener("keydown", escHandler);
-	};
-
-	const escHandler = (e: KeyboardEvent) => {
-		if (e.key === "Escape") {
-			cleanup();
-		}
-	};
-	document.addEventListener("keydown", escHandler);
-
-	const outsideClickHandler = (e: MouseEvent) => {
-		if (e.target === overlay) {
-			cleanup();
-		}
-	};
-	overlay.addEventListener("click", outsideClickHandler);
+	let localCapabilities = [...options.capabilities];
 
 	const handleClose = () => cleanup();
 
@@ -576,19 +580,14 @@ export function showStatusDialog(options: {
 
 	const handleAllow = async () => {
 		const capabilities = ["console", "dom", "network", "storage"];
-		if (options.capabilities.includes("evaluate"))
-			capabilities.push("evaluate");
+		if (localCapabilities.includes("evaluate")) capabilities.push("evaluate");
 
 		let stream: MediaStream | undefined;
-		if (options.capabilities.includes("screenshot")) {
-			try {
-				stream = await navigator.mediaDevices.getDisplayMedia({
-					video: { displaySurface: "browser" },
-					audio: false,
-				});
+		if (localCapabilities.includes("screenshot")) {
+			const mediaStream = await requestDisplayMedia();
+			if (mediaStream) {
+				stream = mediaStream;
 				capabilities.push("screenshot");
-			} catch (err) {
-				// ignore
 			}
 		}
 
@@ -611,21 +610,17 @@ export function showStatusDialog(options: {
 
 	const handleScreenshotToggle = async (e: Event) => {
 		const checked = (e.target as HTMLInputElement).checked;
-		let newCapabilities = [...options.capabilities];
+		let newCapabilities = [...localCapabilities];
 		let newStream: MediaStream | null | undefined;
 
 		if (checked) {
-			try {
-				const stream = await navigator.mediaDevices.getDisplayMedia({
-					video: { displaySurface: "browser" },
-					audio: false,
-				});
+			const stream = await requestDisplayMedia();
+			if (stream) {
 				newStream = stream;
 				if (!newCapabilities.includes("screenshot")) {
 					newCapabilities.push("screenshot");
 				}
-			} catch (err) {
-				// Revert if permission denied
+			} else {
 				(e.target as HTMLInputElement).checked = false;
 				return;
 			}
@@ -634,7 +629,7 @@ export function showStatusDialog(options: {
 			newCapabilities = newCapabilities.filter((c) => c !== "screenshot");
 		}
 
-		options.capabilities = newCapabilities;
+		localCapabilities = newCapabilities;
 		options.onApprovalStateChange({
 			approved: options.approved,
 			capabilities: newCapabilities,
@@ -645,18 +640,44 @@ export function showStatusDialog(options: {
 
 	const handleEvalToggle = (e: Event) => {
 		const checked = (e.target as HTMLInputElement).checked;
-		let newCapabilities = [...options.capabilities];
+		let newCapabilities = [...localCapabilities];
 		if (checked) {
 			if (!newCapabilities.includes("evaluate"))
 				newCapabilities.push("evaluate");
 		} else {
 			newCapabilities = newCapabilities.filter((c) => c !== "evaluate");
 		}
-		options.capabilities = newCapabilities;
+		localCapabilities = newCapabilities;
 		options.onApprovalStateChange({
 			approved: options.approved,
 			capabilities: newCapabilities,
 		});
+		renderDialog();
+	};
+
+	const handlePendingScreenshotToggle = (e: Event) => {
+		const checked = (e.target as HTMLInputElement).checked;
+		let newCapabilities = [...localCapabilities];
+		if (checked) {
+			if (!newCapabilities.includes("screenshot"))
+				newCapabilities.push("screenshot");
+		} else {
+			newCapabilities = newCapabilities.filter((c) => c !== "screenshot");
+		}
+		localCapabilities = newCapabilities;
+		renderDialog();
+	};
+
+	const handlePendingEvalToggle = (e: Event) => {
+		const checked = (e.target as HTMLInputElement).checked;
+		let newCapabilities = [...localCapabilities];
+		if (checked) {
+			if (!newCapabilities.includes("evaluate"))
+				newCapabilities.push("evaluate");
+		} else {
+			newCapabilities = newCapabilities.filter((c) => c !== "evaluate");
+		}
+		localCapabilities = newCapabilities;
 		renderDialog();
 	};
 
@@ -669,8 +690,8 @@ export function showStatusDialog(options: {
 				? "Approved"
 				: "Pending Approval";
 
-		const hasScreenshot = options.capabilities.includes("screenshot");
-		const hasEval = options.capabilities.includes("evaluate");
+		const hasScreenshot = localCapabilities.includes("screenshot");
+		const hasEval = localCapabilities.includes("evaluate");
 		const badgeHidden = options.isBadgeHidden();
 		const hideButtonText = badgeHidden
 			? "Show badge"
@@ -681,7 +702,7 @@ export function showStatusDialog(options: {
 				<div class="aperture-header">
 					<div class="aperture-icon">⚙️</div>
 					<div class="aperture-title-container">
-						<h3 class="aperture-title">Aperture Settings</h3>
+						<h3 class="aperture-title">Agent Bridge Settings</h3>
 						<p class="aperture-subtitle">Local agent session management</p>
 					</div>
 				</div>
@@ -705,17 +726,7 @@ export function showStatusDialog(options: {
 								@change=${
 									options.approved
 										? handleScreenshotToggle
-										: (e: Event) => {
-												if ((e.target as HTMLInputElement).checked) {
-													if (!options.capabilities.includes("screenshot"))
-														options.capabilities.push("screenshot");
-												} else {
-													options.capabilities = options.capabilities.filter(
-														(c) => c !== "screenshot",
-													);
-												}
-												renderDialog();
-											}
+										: handlePendingScreenshotToggle
 								}
 							/>
 							<div>
@@ -730,19 +741,7 @@ export function showStatusDialog(options: {
 								id="aperture-status-eval"
 								.checked=${hasEval}
 								@change=${
-									options.approved
-										? handleEvalToggle
-										: (e: Event) => {
-												if ((e.target as HTMLInputElement).checked) {
-													if (!options.capabilities.includes("evaluate"))
-														options.capabilities.push("evaluate");
-												} else {
-													options.capabilities = options.capabilities.filter(
-														(c) => c !== "evaluate",
-													);
-												}
-												renderDialog();
-											}
+									options.approved ? handleEvalToggle : handlePendingEvalToggle
 								}
 							/>
 							<div>
@@ -779,7 +778,6 @@ export function showStatusDialog(options: {
 	};
 
 	renderDialog();
-
 	setTimeout(() => {
 		overlay.classList.add("active");
 	}, 10);

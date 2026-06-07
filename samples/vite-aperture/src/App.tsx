@@ -3,7 +3,7 @@ import reactLogo from './assets/react.svg'
 import viteLogo from './assets/vite.svg'
 import heroImg from './assets/hero.png'
 import './App.css'
-import { Aperture } from '@halvo/aperture/react'
+import { Aperture } from '@ericmhalvorsen/aperture/react'
 
 function App() {
   const [count, setCount] = useState(0)

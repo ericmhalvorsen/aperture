@@ -7,7 +7,6 @@ let serverStarted = false;
 
 function getBinPath(): string {
 	const __dirname = path.dirname(fileURLToPath(import.meta.url));
-	// In built dist/, frameworks/ is next to bin.js
 	return path.join(__dirname, "..", "bin.js");
 }
 
@@ -16,11 +15,11 @@ function isPortFree(port: number): Promise<boolean> {
 		const socket = createConnection(port, "127.0.0.1");
 		socket.once("connect", () => {
 			socket.destroy();
-			resolve(false); // Port in use = server likely running
+			resolve(false);
 		});
 		socket.once("error", () => {
 			socket.destroy();
-			resolve(true); // Port free
+			resolve(true);
 		});
 		setTimeout(() => {
 			socket.destroy();
@@ -42,31 +41,22 @@ export async function ensureApertureServer(port = 3456): Promise<void> {
 	serverStarting = true;
 	const binPath = getBinPath();
 
-	// Spawn in same process group (detached: false) so Ctrl+C propagates.
-	// stdio: "ignore" keeps logs clean; unref() lets parent exit normally.
 	const cp = await import(/* webpackIgnore: true */ "node:child_process");
-	const cmd = "node";
-	const spawnFn = "spawn";
-	const child = (cp as any)[spawnFn](cmd, [binPath], {
+	const child = cp.spawn("node", [binPath], {
 		stdio: "ignore",
 		env: { ...process.env, APERTURE_PORT: String(port) },
 	});
 
 	child.unref();
 
-	// Kill child when parent exits normally (prevents orphaned zombies).
 	process.on("exit", () => {
 		try {
 			child.kill();
-		} catch {
-			// ignore if already dead
-		}
+		} catch {}
 	});
 
-	// Wait a moment for it to bind
 	await new Promise((resolve) => setTimeout(resolve, 800));
 
-	// Verify it started
 	const nowFree = await isPortFree(port);
 	if (!nowFree) {
 		serverStarted = true;

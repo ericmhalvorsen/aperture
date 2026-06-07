@@ -38,3 +38,11 @@ Thumbs.db
 .biome/
 .turbo/
 .vitest/
+
+# Test Outputs
+playwright-report/
+test-results/
+blob-report/
+
+# Agent Tools
+.antigravitycli/

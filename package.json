@@ -1,5 +1,5 @@
 {
-	"name": "@halvo/aperture",
+	"name": "@ericmhalvorsen/aperture",
 	"version": "0.1.1",
 	"description": "Browser-to-agent bridge for AI agents. Auto-connects your dev browser to any MCP-capable agent.",
 	"license": "MIT",
@@ -45,7 +45,7 @@
 		"knip": "knip",
 		"audit:deps": "pnpm audit",
 		"test": "vitest run",
-		"test:e2e": "pnpm --filter \"./samples/*\" --workspace-concurrency=1 run test:e2e",
+		"test:e2e": "playwright test",
 		"test:watch": "vitest",
 		"test:coverage": "vitest run --coverage",
 		"changeset": "changeset",
@@ -83,5 +83,10 @@
 	"files": [
 		"dist",
 		"README.md"
-	]
+	],
+	"pnpm": {
+		"overrides": {
+			"postcss": "^8.5.10"
+		}
+	}
 }

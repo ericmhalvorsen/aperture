@@ -116,8 +116,6 @@ describe("ApertureClient", () => {
 			args: { selector: "#test-btn" },
 		});
 
-		const activeSocket = (client as any).ws as MockWebSocket;
-
 		expect(clicked).toBe(true);
 		client.disconnect();
 	});

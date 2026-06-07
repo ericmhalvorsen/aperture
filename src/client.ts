@@ -1,15 +1,10 @@
-/**
- * Browser-side bridge client.
- * Auto-connects to the bridge server and exposes browser APIs to MCP agents.
- */
-
 import { TOOL_HANDLERS } from "./client/handlers.js";
 import { patchConsole, patchFetch } from "./client/patches.js";
 import { storage } from "./client/storage.js";
 import {
 	injectStyles,
+	showApprovalDialog,
 	showStatusDialog,
-	showVanillaApprovalDialog,
 } from "./client/ui.js";
 import type {
 	ClientToServerMessage,
@@ -42,7 +37,6 @@ export class ApertureClient {
 	private config: BridgeConfig;
 	private approved = false;
 	private denied = false;
-	private approvalPending = false;
 	private capabilities: string[] = [];
 	private screenCaptureStream: MediaStream | null = null;
 	private badgeElement: HTMLElement | null = null;
@@ -107,7 +101,7 @@ export class ApertureClient {
 		const approved = storage.get("aperture_approved");
 		const timestamp = storage.get("aperture_approved_at");
 		const storedTtl = storage.get("aperture_ttl_ms");
-		const defaultTtlMs = 60 * 60 * 1000; // 1 hour default
+		const defaultTtlMs = 60 * 60 * 1000;
 		const ttlMs = storedTtl ? Number(storedTtl) : defaultTtlMs;
 
 		const isStale = timestamp ? Date.now() - Number(timestamp) > ttlMs : true;
@@ -123,7 +117,6 @@ export class ApertureClient {
 			this.approved = false;
 		}
 
-		// Clear stale cache
 		if (isStale) {
 			storage.remove("aperture_approved");
 			storage.remove("aperture_approved_at");
@@ -196,7 +189,6 @@ export class ApertureClient {
 				});
 			}
 
-			// Report initial focus state and start listening for changes
 			this.reportFocusState();
 			if (typeof window !== "undefined" && !this.focusListenersAdded) {
 				this.focusListenersAdded = true;
@@ -213,9 +205,7 @@ export class ApertureClient {
 				} else if (msg.type === "agent_connected") {
 					await this.getOrWaitApproval();
 				}
-			} catch {
-				// ignore
-			}
+			} catch {}
 		};
 
 		this.ws.onclose = () => {
@@ -268,10 +258,7 @@ export class ApertureClient {
 			const dot = document.createElement("span");
 			dot.className = "dot";
 
-			const text = document.createTextNode(" Aperture");
-
 			this.badgeElement.appendChild(dot);
-			this.badgeElement.appendChild(text);
 			this.badgeElement.addEventListener("click", () => {
 				this.openStatusDialog();
 			});
@@ -294,7 +281,6 @@ export class ApertureClient {
 			return;
 		}
 
-		// Ask user for approval on first tool call
 		if (!this.approved) {
 			await this.getOrWaitApproval();
 
@@ -376,7 +362,7 @@ export class ApertureClient {
 			const result = await this.config.onApprovalRequest(agentName);
 			return { ...result, dismissed: false };
 		}
-		return showVanillaApprovalDialog(agentName, (state) => {
+		return showApprovalDialog(agentName, (state: any) => {
 			if (state.stream !== undefined) {
 				this.screenCaptureStream = state.stream;
 			}
@@ -385,11 +371,6 @@ export class ApertureClient {
 
 	async captureScreenshotFromStream(): Promise<string> {
 		if (!this.screenCaptureStream?.active) {
-			// Stream lost — show approval dialog so user can re-grant screenshot access
-			// V2: Basic approval (approved + capabilities) IS remembered across refreshes
-			// via localStorage. The MediaStream object itself cannot be persisted by
-			// browser design — getDisplayMedia() requires live user consent per origin.
-			// Standalone bridge / out-of-app operation is planned for v2.
 			const decision = await this.getApproval("MCP Agent");
 			if (!decision.approved || !this.screenCaptureStream?.active) {
 				throw new Error("Screenshot access was not granted.");
@@ -432,7 +413,6 @@ export class ApertureClient {
 		ctx.drawImage(video, 0, 0);
 		const dataUrl = canvas.toDataURL("image/png");
 
-		// Clean up temporary video element reference
 		video.srcObject = null;
 		video.load();
 
@@ -506,7 +486,6 @@ export function initAperture(options?: {
 	const port = options?.port || (window as any).__APERTURE_PORT__ || 3456;
 	const serverUrl = options?.serverUrl || `ws://localhost:${port}`;
 
-	// Disconnect existing instance if any
 	const existing = (window as any).__apertureInstance__;
 	if (existing && typeof existing.disconnect === "function") {
 		existing.disconnect();
@@ -521,9 +500,7 @@ export function initAperture(options?: {
 	return client;
 }
 
-// Auto-connect if running in browser and not already connected
 if (typeof window !== "undefined") {
-	// Only auto-connect in dev mode
 	const isDev =
 		location.hostname === "localhost" ||
 		location.hostname === "127.0.0.1" ||
@@ -531,7 +508,6 @@ if (typeof window !== "undefined") {
 		!!(window as any).__vite_inject__;
 
 	if (isDev) {
-		// Defer to check if manual initialization occurs
 		setTimeout(() => {
 			if (!(window as any).__apertureInstance__) {
 				const port = (window as any).__APERTURE_PORT__ || 3456;

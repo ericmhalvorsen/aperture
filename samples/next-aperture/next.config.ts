@@ -1,5 +1,5 @@
 import type { NextConfig } from "next";
-import { withAperture } from "@halvo/aperture/next";
+import { withAperture } from "@ericmhalvorsen/aperture/next";
 
 const nextConfig: NextConfig = {
 	/* config options here */
