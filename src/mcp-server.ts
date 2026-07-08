@@ -18,7 +18,7 @@ export function createApertureMcpServer(
 	sharedState: SharedServerState,
 ) {
 	const server = new Server(
-		{ name: "aperture", version: "0.1.1" },
+		{ name: "aperture", version: "0.2.0" },
 		{ capabilities: { tools: {} } },
 	);
 
@@ -35,7 +35,7 @@ export function createApertureMcpServer(
 		return {
 			protocolVersion: request.params.protocolVersion,
 			capabilities: { tools: {} },
-			serverInfo: { name: "aperture", version: "0.1.1" },
+			serverInfo: { name: "aperture", version: "0.2.0" },
 		};
 	});
 

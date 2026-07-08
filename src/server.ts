@@ -223,7 +223,8 @@ export class ApertureServer {
 			const content = await fs.readFile(clientPath, "utf-8");
 			res.writeHead(200, { "Content-Type": "application/javascript" });
 			res.end(content);
-		} catch (_err) {
+		} catch (err) {
+			console.error("[Aperture] Error loading client script:", err);
 			res.writeHead(500, { "Content-Type": "text/plain" });
 			res.end("Error loading aperture client script");
 		}

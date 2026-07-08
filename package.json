@@ -1,6 +1,6 @@
 {
 	"name": "@ericmhalvorsen/aperture",
-	"version": "0.1.1",
+	"version": "0.2.0",
 	"description": "Browser-to-agent bridge for AI agents. Auto-connects your dev browser to any MCP-capable agent.",
 	"license": "MIT",
 	"author": "Eric M. Halvorsen",
