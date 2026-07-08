@@ -201,7 +201,7 @@ If only one tab is connected, `sessionId` is optional (auto-selected based on mo
 ## Architecture
 
 ```
-Promptuary App (or any framework)
+Your App (or any framework)
 ├── next.config.ts  → withAperture()   → starts server on port 3456
 ├── app/layout.tsx  → <Aperture />     → browser connects via WebSocket
 │

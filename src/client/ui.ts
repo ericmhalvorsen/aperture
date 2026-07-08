@@ -328,8 +328,6 @@ export function injectStyles() {
 
 import { html, render } from "lit-html";
 
-/* ── Shared helpers ─────────────────────────────────────────────── */
-
 function createDialogOverlay(onDismiss?: () => void) {
 	const overlay = document.createElement("div");
 	overlay.id = "aperture-dialog-overlay";
@@ -382,8 +380,6 @@ async function requestDisplayMedia(): Promise<MediaStream | null> {
 		return null;
 	}
 }
-
-/* ── Modal A: Initial approval dialog ───────────────────────────── */
 
 export function showApprovalDialog(
 	agentName: string,
@@ -530,8 +526,6 @@ export function showApprovalDialog(
 		activate();
 	});
 }
-
-/* ── Modal B: Status / settings dialog ──────────────────────────── */
 
 export function showStatusDialog(options: {
 	wsReadyState: number;

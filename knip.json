@@ -1,6 +1,6 @@
 {
 	"$schema": "https://unpkg.com/knip@5/schema.json",
-	"entry": ["src/**/*.ts!", "src/**/*.tsx!", "playwright.config.ts!"],
+	"entry": ["src/**/*.ts!", "src/**/*.tsx!"],
 	"ignoreDependencies": ["@types/react"],
-	"ignore": ["mock_mcp.js", "tsup.browser.ts"]
+	"ignore": ["tsup.browser.ts"]
 }

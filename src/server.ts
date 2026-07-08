@@ -134,8 +134,6 @@ export class ApertureServer {
 			this.sharedState,
 		);
 
-		// Register session immediately to prevent race conditions from clients POSTing
-		// to the message URL before connect() completes.
 		this.sseSessions.set(transport.sessionId, {
 			transport,
 			server: mcpServer,

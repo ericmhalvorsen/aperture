@@ -13,6 +13,15 @@ import type {
 	WSToolCallMessage,
 } from "./types.js";
 
+declare global {
+	interface Window {
+		__apertureInstance__: ApertureClient;
+		__APERTURE_PORT__: number;
+		__APERTURE_URL__: string;
+		__vite_inject__: unknown;
+	}
+}
+
 export interface CustomToolDefinition {
 	description: string;
 	inputSchema: object;
@@ -44,7 +53,7 @@ export class ApertureClient {
 
 	constructor(config: BridgeConfig) {
 		this.config = config;
-		(window as any).__apertureInstance__ = this;
+		window.__apertureInstance__ = this;
 
 		injectStyles();
 		patchConsole();
@@ -393,7 +402,6 @@ export class ApertureClient {
 
 		await video.play().catch(() => null);
 
-		// Wait for an actually painted frame, not just metadata, or playback stays black
 		await new Promise<void>((resolve) => {
 			if (typeof video.requestVideoFrameCallback === "function") {
 				video.requestVideoFrameCallback(() => resolve());
@@ -479,14 +487,14 @@ export function initAperture(options?: {
 		location.hostname === "localhost" ||
 		location.hostname === "127.0.0.1" ||
 		location.hostname.endsWith(".localhost") ||
-		!!(window as any).__vite_inject__;
+		!!window.__vite_inject__;
 
 	if (!isDev) return;
 
-	const port = options?.port || (window as any).__APERTURE_PORT__ || 3456;
+	const port = options?.port || window.__APERTURE_PORT__ || 3456;
 	const serverUrl = options?.serverUrl || `ws://localhost:${port}`;
 
-	const existing = (window as any).__apertureInstance__;
+	const existing = window.__apertureInstance__;
 	if (existing && typeof existing.disconnect === "function") {
 		existing.disconnect();
 	}
@@ -496,7 +504,7 @@ export function initAperture(options?: {
 		customTools: options?.customTools,
 	});
 	client.connect();
-	(window as any).__apertureInstance__ = client;
+	window.__apertureInstance__ = client;
 	return client;
 }
 
@@ -505,20 +513,20 @@ if (typeof window !== "undefined") {
 		location.hostname === "localhost" ||
 		location.hostname === "127.0.0.1" ||
 		location.hostname.endsWith(".localhost") ||
-		!!(window as any).__vite_inject__;
+		!!window.__vite_inject__;
 
 	if (isDev) {
 		setTimeout(() => {
-			if (!(window as any).__apertureInstance__) {
-				const port = (window as any).__APERTURE_PORT__ || 3456;
+			if (!window.__apertureInstance__) {
+				const port = window.__APERTURE_PORT__ || 3456;
 				const serverUrl =
-					(window as any).__APERTURE_URL__ || `ws://localhost:${port}`;
+					window.__APERTURE_URL__ || `ws://localhost:${port}`;
 				console.log(
 					"[Aperture] No manual initialization detected. Auto-connecting...",
 				);
 				const client = new ApertureClient({ serverUrl });
 				client.connect();
-				(window as any).__apertureInstance__ = client;
+				window.__apertureInstance__ = client;
 			}
 		}, 500);
 	}

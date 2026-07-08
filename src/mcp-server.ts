@@ -35,7 +35,7 @@ export function createApertureMcpServer(
 		return {
 			protocolVersion: request.params.protocolVersion,
 			capabilities: { tools: {} },
-			serverInfo: { name: "aperture", version: "0.1.0" },
+			serverInfo: { name: "aperture", version: "0.1.1" },
 		};
 	});
 

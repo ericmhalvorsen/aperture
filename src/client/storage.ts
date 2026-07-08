@@ -15,9 +15,7 @@ export const storage = {
 		}
 		try {
 			localStorage.setItem(key, value);
-		} catch {
-			// ignore
-		}
+		} catch {}
 	},
 	remove(key: string): void {
 		if (typeof window === "undefined" || typeof localStorage === "undefined") {
@@ -25,8 +23,6 @@ export const storage = {
 		}
 		try {
 			localStorage.removeItem(key);
-		} catch {
-			// ignore
-		}
+		} catch {}
 	},
 };

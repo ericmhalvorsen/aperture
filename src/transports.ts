@@ -68,7 +68,6 @@ export class SseTransport implements Transport {
 		this.res.end();
 	}
 
-	/** Receive a message from an external POST handler and forward to the server. */
 	receiveMessage(message: JSONRPCMessage): void {
 		this.onmessage?.(message);
 	}
@@ -83,9 +82,7 @@ export class HttpPostTransport implements Transport {
 
 	constructor(private res: ServerResponse) {}
 
-	async start(): Promise<void> {
-		// No-op
-	}
+	async start(): Promise<void> {}
 
 	async send(message: JSONRPCMessage): Promise<void> {
 		if (!this.res.headersSent) {
@@ -101,7 +98,6 @@ export class HttpPostTransport implements Transport {
 		}
 	}
 
-	/** Receive a single message and return a promise that resolves when the response is sent. */
 	receiveMessage(message: JSONRPCMessage): Promise<void> {
 		return new Promise((resolve) => {
 			this.resolveResponse = resolve;
@@ -110,7 +106,6 @@ export class HttpPostTransport implements Transport {
 	}
 }
 
-/** Helper to parse incoming JSON-RPC from an HTTP request body. */
 export async function parseJsonRpcBody(
 	req: IncomingMessage,
 ): Promise<JSONRPCMessage> {
@@ -130,7 +125,6 @@ export async function parseJsonRpcBody(
 	});
 }
 
-/** Write a JSON-RPC parse error to an HTTP response. */
 export function writeParseError(res: ServerResponse): void {
 	res.writeHead(400, { "Content-Type": "application/json" });
 	res.end(

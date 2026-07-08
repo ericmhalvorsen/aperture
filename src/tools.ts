@@ -1,8 +1,3 @@
-/**
- * MCP tool definitions for the browser bridge.
- * These are the capabilities exposed to any MCP client (Claude Code, Cursor, etc.)
- */
-
 export const BROWSER_TOOLS = {
 	browser_dom_query: {
 		description:
@@ -89,7 +84,7 @@ export const BROWSER_TOOLS = {
 	},
 	browser_screenshot: {
 		description:
-			"Capture a screenshot of the current viewport as base64 PNG. NOTE: If the user has not yet granted screenshot access for this browser session, an approval modal will appear in the page. Ask the user to click 'Allow' in the Aperture dialog before proceeding.",
+			"Capture a screenshot of the current viewport as base64 PNG. NOTE: If the user has not yet granted screenshot access for this browser session, an approval modal will appear in the page. Ask the user to click 'Allow' in the dialog before proceeding.",
 		inputSchema: {
 			type: "object" as const,
 			properties: {
@@ -103,7 +98,7 @@ export const BROWSER_TOOLS = {
 	},
 	browser_evaluate: {
 		description:
-			"Evaluate JavaScript in the page context and return the result as a string. Objects are JSON-serialized. NOTE: This requires explicit user approval. If not yet approved, an Aperture dialog will appear in the page — ask the user to click 'Allow' before proceeding.",
+			"Evaluate JavaScript in the page context and return the result as a string. Objects are JSON-serialized. NOTE: This requires explicit user approval. If not yet approved, a dialog will appear in the page — ask the user to click 'Allow' before proceeding.",
 		inputSchema: {
 			type: "object" as const,
 			properties: {

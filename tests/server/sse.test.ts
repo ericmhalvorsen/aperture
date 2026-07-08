@@ -28,7 +28,7 @@ describe("ApertureServer SSE", () => {
 		expect(res.status).toBe(200);
 		expect(res.headers["content-type"]).toContain("text/event-stream");
 		expect(res.body).toContain("event: endpoint");
-		expect(res.body).toContain("/messages?sessionId=");
+		expect(res.body).toMatch(/\/messages\/[a-zA-Z0-9-]+[?]sessionId=/);
 	});
 
 	test("SSE message endpoint accepts JSON-RPC and responds via stream", async () => {
