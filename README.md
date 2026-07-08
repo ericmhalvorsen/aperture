@@ -87,7 +87,7 @@ Add to your agent's MCP config:
 {
   "mcpServers": {
     "aperture": {
-      "url": "http://localhost:3456/sse"
+      "url": "http://localhost:3456/mcp"
     }
   }
 }
@@ -102,7 +102,13 @@ When the agent makes its first request, you'll see an approval dialog in your br
 - [Security Model](./docs/security.md)
 - [Architecture](./docs/architecture.md)
 - [Debugging](./docs/debugging.md)
-- [Chrome Extension Plan](./EXTENSION.md)
+- [Chrome Extension Plan](./docs/plans/EXTENSION.md)
+
+---
+
+## AI Development Policy
+
+This project is developed in part using AI. When submitting pull requests, you may use AI but please review your submission carefully. The pull request will be treated as if it was written by you.
 
 ---
 

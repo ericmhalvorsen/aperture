@@ -4,10 +4,10 @@
 	"description": "Browser-to-agent bridge for AI agents. Auto-connects your dev browser to any MCP-capable agent.",
 	"license": "MIT",
 	"author": "Eric M. Halvorsen",
-	"repository": {
-		"type": "git",
-		"url": "https://github.com/ericmhalvorsen/aperture"
-	},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ericmhalvorsen/aperture.git"
+  },
 	"homepage": "https://github.com/ericmhalvorsen/aperture#readme",
 	"bugs": {
 		"url": "https://github.com/ericmhalvorsen/aperture/issues"

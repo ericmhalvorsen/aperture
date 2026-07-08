@@ -8,18 +8,14 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { randomUUID } from "node:crypto";
 import { type WebSocket, WebSocketServer } from "ws";
 import {
 	createApertureMcpServer,
 	type SharedServerState,
 } from "./mcp-server.js";
-import {
-	HttpPostTransport,
-	parseJsonRpcBody,
-	SseTransport,
-	WebSocketTransport,
-	writeParseError,
-} from "./transports.js";
+import { WebSocketTransport } from "./transports.js";
 import type { BrowserSession, ClientToServerMessage } from "./types.js";
 
 export class ApertureServer {
@@ -35,9 +31,9 @@ export class ApertureServer {
 		stdio?: boolean;
 	};
 
-	private sseSessions: Map<
+	private streamableSessions: Map<
 		string,
-		{ transport: SseTransport; server: Server; res: ServerResponse }
+		{ transport: StreamableHTTPServerTransport; server: Server }
 	> = new Map();
 
 	constructor(
@@ -52,10 +48,10 @@ export class ApertureServer {
 		this.options = options;
 		const server = createServer(async (req, res) => {
 			res.setHeader("Access-Control-Allow-Origin", "*");
-			res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+			res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
 			res.setHeader(
 				"Access-Control-Allow-Headers",
-				"Content-Type, Mcp-Session-Id",
+				"Content-Type, Mcp-Session-Id, MCP-Protocol-Version, Accept",
 			);
 
 			if (req.method === "OPTIONS") {
@@ -65,18 +61,28 @@ export class ApertureServer {
 			}
 
 			if (req.method === "GET" && req.url === "/sse") {
-				await this.handleSSEConnection(req, res);
+				await this.handleLegacySSEConnection(req, res);
 				return;
 			}
 
 			if (req.method === "POST" && req.url?.startsWith("/messages")) {
-				await this.handleSSEMessage(req, res);
+				await this.handleLegacySSEMessage(req, res);
 				return;
 			}
 
-			if (req.method === "POST" && req.url === "/mcp") {
-				await this.handleHttpPost(req, res);
-				return;
+			if (req.url === "/mcp") {
+				if (req.method === "POST") {
+					await this.handleStreamableHttp(req, res);
+					return;
+				}
+				if (req.method === "GET") {
+					await this.handleStreamableHttpGet(req, res);
+					return;
+				}
+				if (req.method === "DELETE") {
+					await this.handleStreamableHttpDelete(req, res);
+					return;
+				}
 			}
 
 			if (req.url === "/aperture.js") {
@@ -96,7 +102,7 @@ export class ApertureServer {
 		server.listen(port, "127.0.0.1", () => {
 			if (!this.options.silentStartup) {
 				console.error(
-					`[Aperture] MCP server on ws://localhost:${this.port}/mcp`,
+					`[Aperture] MCP server on http://localhost:${this.port}/mcp`,
 				);
 				console.error(
 					`[Aperture] Browser client script: http://localhost:${this.port}/aperture.js`,
@@ -105,28 +111,26 @@ export class ApertureServer {
 		});
 	}
 
-	private async handleHttpPost(req: IncomingMessage, res: ServerResponse) {
-		try {
-			const message = await parseJsonRpcBody(req);
-			const transport = new HttpPostTransport(res);
-			const mcpServer = createApertureMcpServer(
-				this.sessions,
-				this.pendingRequests,
-				this.sharedState,
-			);
-			await mcpServer.connect(transport);
-			await transport.receiveMessage(message);
-			await transport.close();
-			await mcpServer.close();
-		} catch {
-			writeParseError(res);
-		}
-	}
+	private async handleStreamableHttp(req: IncomingMessage, res: ServerResponse) {
+		const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
-	private async handleSSEConnection(req: IncomingMessage, res: ServerResponse) {
-		const transport = new SseTransport(res);
-		const _host = req.headers.host || `localhost:${this.port}`;
-		const messageUrl = `/messages/${transport.sessionId}?sessionId=${transport.sessionId}`;
+		if (sessionId && this.streamableSessions.has(sessionId)) {
+			const session = this.streamableSessions.get(sessionId);
+			if (session) {
+				await session.transport.handleRequest(req, res);
+				return;
+			}
+		}
+
+		const transport = new StreamableHTTPServerTransport({
+			sessionIdGenerator: () => randomUUID(),
+			onsessioninitialized: (sid) => {
+				this.streamableSessions.set(sid, { transport, server: mcpServer });
+				console.error(
+					`[Aperture] Streamable HTTP session ${sid.slice(0, 8)} connected`,
+				);
+			},
+		});
 
 		const mcpServer = createApertureMcpServer(
 			this.sessions,
@@ -134,80 +138,65 @@ export class ApertureServer {
 			this.sharedState,
 		);
 
-		this.sseSessions.set(transport.sessionId, {
-			transport,
-			server: mcpServer,
-			res,
-		});
-
-		res.writeHead(200, {
-			"Content-Type": "text/event-stream",
-			"Cache-Control": "no-cache, no-transform",
-			Connection: "keep-alive",
-			"Mcp-Session-Id": transport.sessionId,
-		});
-		res.write(`event: endpoint\ndata: ${messageUrl}\n\n`);
-
-		try {
-			await mcpServer.connect(transport);
-		} catch (_err) {
-			this.sseSessions.delete(transport.sessionId);
+		transport.onclose = () => {
+			const sid = transport.sessionId;
+			if (sid) {
+				this.streamableSessions.delete(sid);
+				console.error(
+					`[Aperture] Streamable HTTP session ${sid.slice(0, 8)} disconnected`,
+				);
+			}
 			mcpServer.close().catch(() => {});
-			res.end();
-			return;
-		}
+		};
 
-		console.error(
-			`[Aperture] SSE session ${transport.sessionId.slice(0, 8)} connected`,
-		);
-
-		const pingInterval = setInterval(() => {
-			res.write(": ping\n\n");
-		}, 30000);
-
-		res.on("close", () => {
-			clearInterval(pingInterval);
-			this.sseSessions.delete(transport.sessionId);
-			mcpServer.close().catch(() => {});
-			console.error(
-				`[Aperture] SSE session ${transport.sessionId.slice(0, 8)} disconnected`,
-			);
-		});
+		await mcpServer.connect(transport);
+		await transport.handleRequest(req, res);
 	}
 
-	private async handleSSEMessage(req: IncomingMessage, res: ServerResponse) {
-		const url = new URL(req.url || "/", `http://localhost:${this.port}`);
-		const headerSessionId = req.headers["mcp-session-id"];
-
-		const pathParts = url.pathname.split("/");
-		const pathSessionId = pathParts.length > 2 ? pathParts[2] : null;
-
-		const sessionId =
-			pathSessionId ||
-			url.searchParams.get("sessionId") ||
-			(Array.isArray(headerSessionId) ? headerSessionId[0] : headerSessionId);
-		const session = sessionId ? this.sseSessions.get(sessionId) : undefined;
-
-		if (!session) {
-			res.writeHead(404, {
-				"Content-Type": "text/plain",
-				"Mcp-Session-Id": sessionId || "",
-			});
-			res.end("Session not found");
+	private async handleStreamableHttpGet(req: IncomingMessage, res: ServerResponse) {
+		const sessionId = req.headers["mcp-session-id"] as string | undefined;
+		if (!sessionId || !this.streamableSessions.has(sessionId)) {
+			res.writeHead(400, { "Content-Type": "application/json" });
+			res.end(JSON.stringify({ error: "Invalid or missing session ID" }));
 			return;
 		}
 
-		try {
-			const message = await parseJsonRpcBody(req);
-			session.transport.receiveMessage(message);
-			res.writeHead(202, {
-				"Content-Type": "text/plain",
-				"Mcp-Session-Id": sessionId,
-			});
-			res.end("Accepted");
-		} catch {
-			writeParseError(res);
+		const session = this.streamableSessions.get(sessionId);
+		if (session) {
+			await session.transport.handleRequest(req, res);
 		}
+	}
+
+	private async handleStreamableHttpDelete(req: IncomingMessage, res: ServerResponse) {
+		const sessionId = req.headers["mcp-session-id"] as string | undefined;
+		if (!sessionId || !this.streamableSessions.has(sessionId)) {
+			res.writeHead(404, { "Content-Type": "application/json" });
+			res.end(JSON.stringify({ error: "Session not found" }));
+			return;
+		}
+
+		const session = this.streamableSessions.get(sessionId);
+		if (session) {
+			await session.transport.handleRequest(req, res);
+			this.streamableSessions.delete(sessionId);
+			await session.server.close();
+			console.error(
+				`[Aperture] Streamable HTTP session ${sessionId.slice(0, 8)} terminated`,
+			);
+		}
+	}
+
+	private async handleLegacySSEConnection(_req: IncomingMessage, res: ServerResponse) {
+		res.writeHead(200, {
+			"Content-Type": "text/plain",
+			"Content-Encoding": "identity",
+		});
+		res.end("SSE transport is deprecated. Use /mcp instead.");
+	}
+
+	private async handleLegacySSEMessage(_req: IncomingMessage, res: ServerResponse) {
+		res.writeHead(410, { "Content-Type": "application/json" });
+		res.end(JSON.stringify({ error: "SSE transport is deprecated. Use /mcp instead." }));
 	}
 
 	private async serveClientScript(res: ServerResponse) {

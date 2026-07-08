@@ -43,13 +43,16 @@ describe("ApertureServer HTTP", () => {
 	test("HTTP POST to /mcp handles JSON-RPC initialize", async () => {
 		const res = await httpRequest(`http://localhost:${port}/mcp`, {
 			method: "POST",
-			headers: { "Content-Type": "application/json" },
+			headers: {
+				"Content-Type": "application/json",
+				Accept: "application/json, text/event-stream",
+			},
 			body: JSON.stringify({
 				jsonrpc: "2.0",
 				id: "http-1",
 				method: "initialize",
 				params: {
-					protocolVersion: "2024-11-05",
+					protocolVersion: "2025-03-26",
 					capabilities: {},
 					clientInfo: { name: "http-test", version: "1.0" },
 				},
@@ -57,8 +60,7 @@ describe("ApertureServer HTTP", () => {
 		});
 
 		expect(res.status).toBe(200);
-		const parsed = JSON.parse(res.body);
-		expect(parsed.id).toBe("http-1");
-		expect(parsed.result.serverInfo.name).toBe("aperture");
+		expect(res.body).toContain("http-1");
+		expect(res.body).toContain("aperture");
 	});
 });
