@@ -1,12 +1,18 @@
 ---
-"@ericmhalvorsen/aperture": patch
+"@ericmhalvorsen/aperture": minor
 ---
 
-Refactor modal dialog infrastructure and fix release blockers
+Beta release cleanup
 
-- Consolidate shared overlay, animation, and screenshot-stream logic between the approval and status dialogs
-- Fix a state-mutation bug where the status dialog could modify the caller's `capabilities` array directly
-- Rename `showVanillaApprovalDialog` → `showApprovalDialog`
-- Remove unused `@modelcontextprotocol/sdk` and `zod` dependencies
-- Fix source lint errors (template literals, non-null assertions, explicit `any` types)
-- Exclude e2e tests from Vitest runner to prevent Playwright conflicts
+- Remove unused `zod` dependency
+- Add missing `./register` export to package.json
+- Fix CI/CD workflows to use root-level Playwright config
+- Fix version mismatch in MCP server initialization response
+- Remove dead code (`stdio-bridge.ts`, `mock_mcp.js`)
+- Strip all code comments from source
+- Add `Window` type augmentation to replace `as any` casts
+- Update tool descriptions to use "Agent Bridge" branding
+- Fix README inaccuracies (security model, SSE URL format)
+- Normalize sample app dependency linking
+- Replace boilerplate sample READMEs
+- Mark React peer dependencies as optional

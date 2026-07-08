@@ -13,7 +13,7 @@ importers:
     dependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
-        version: 1.29.0(zod@4.4.3)
+        version: 1.29.0
       lit-html:
         specifier: ^3.3.3
         version: 3.3.3
@@ -23,9 +23,6 @@ importers:
       ws:
         specifier: ^8
         version: 8.21.0
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.4.16
@@ -70,7 +67,7 @@ importers:
   samples/next-aperture:
     dependencies:
       '@ericmhalvorsen/aperture':
-        specifier: link:../..
+        specifier: workspace:*
         version: link:../..
       next:
         specifier: 16.2.6
@@ -873,7 +870,6 @@ packages:
     engines: {node: '>=18'}
     peerDependencies:
       '@cfworker/json-schema': ^4.1.1
-      zod: ^3.25 || ^4.0
     peerDependenciesMeta:
       '@cfworker/json-schema':
         optional: true
@@ -4652,7 +4648,7 @@ snapshots:
       globby: 11.1.0
       read-yaml-file: 1.1.0
 
-  '@modelcontextprotocol/sdk@1.29.0(zod@4.4.3)':
+  '@modelcontextprotocol/sdk@1.29.0':
     dependencies:
       '@hono/node-server': 1.19.14(hono@4.12.23)
       ajv: 8.20.0

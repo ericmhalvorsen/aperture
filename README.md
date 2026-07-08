@@ -136,7 +136,7 @@ If Aperture is running as a sidecar inside your Vite/Next.js app, configure your
 }
 ```
 
-The client connects to `http://localhost:3456/sse`, receives an `endpoint` event, and POSTs JSON-RPC messages to the returned `/messages?sessionId=...` URL.
+The client connects to `http://localhost:3456/sse`, receives an `endpoint` event, and POSTs JSON-RPC messages to the returned `/messages/{sessionId}?sessionId=...` URL.
 
 #### Option B: Standalone Stdio Mode (If Not Using Vite/Next.js Plugin)
 
@@ -172,7 +172,7 @@ If you aren't integrating as a sidecar with a web server, you can configure your
 
 ### Screenshot Tool
 
-`browser_screenshot` requires a live screen capture stream from the browser. If the stream is inactive (e.g. after a page refresh), the Aperture approval modal will appear in the browser tab. Ask the user to click **Allow** — the modal will re-request `getDisplayMedia()` and the screenshot will proceed.
+`browser_screenshot` requires a live screen capture stream from the browser. If the stream is inactive (e.g. after a page refresh), the approval modal will appear in the browser tab. Ask the user to click **Allow** — the modal will re-request `getDisplayMedia()` and the screenshot will proceed.
 
 ### Multi-Session Support
 
@@ -190,11 +190,11 @@ If only one tab is connected, `sessionId` is optional (auto-selected based on mo
 
 ## Security Model
 
-- **Dev Only**: The React wrapper only mounts in `NODE_ENV === "development"`.
+- **Dev Only**: The client only initializes on `localhost` or `127.0.0.1`.
 - **Localhost Only**: The server binds to `127.0.0.1`. No external traffic.
 - **One-click Consent**: First tool call spawns an explicit dialog. Deny = blocked for the session.
 - **Conditional Persistence**: Approval persists across page reloads for **1 hour** by default. Check "Trust this device for 24 hours" in the dialog to extend to 24h. Click "Revoke Session" to clear early.
-- **Opt-in Risk**: Screenshots and JS evaluation are disabled by default.
+- **Opt-in Risk**: Screenshots and JS evaluation are enabled by default in the approval dialog but require explicit user consent via the modal.
 
 ---
 

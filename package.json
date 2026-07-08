@@ -62,8 +62,7 @@
 		"@modelcontextprotocol/sdk": "^1.29.0",
 		"lit-html": "^3.3.3",
 		"picocolors": "^1.1.1",
-		"ws": "^8",
-		"zod": "^4.4.3"
+		"ws": "^8"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.16",
@@ -83,6 +82,10 @@
 	"peerDependencies": {
 		"react": ">=18",
 		"react-dom": ">=18"
+	},
+	"peerDependenciesMeta": {
+		"react": { "optional": true },
+		"react-dom": { "optional": true }
 	},
 	"files": [
 		"dist",
