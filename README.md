@@ -1,8 +1,107 @@
 # @ericmhalvorsen/aperture
 
-> Give MCP-capable AI agents a live view into your local dev session.
+> Let Agent see browser. Agent build better stuff. Perchance
 
-No extensions. No CORS hacks. Auto-connect your local dev browser to Claude Code, Cursor, OpenCode, or any other MCP-capable agent. The agent can tail console logs, query the DOM, inspect network requests, scroll, click, type, and evaluate JS — after you approve it with a single click.
+No extensions. No CORS hacks. Auto-connect your local dev browser to Claude Code, Cursor, OpenCode, or any other MCP-capable agent.
+
+## 5-Minute Quickstart
+
+### 1. Install
+
+```bash
+npm install -D @ericmhalvorsen/aperture
+```
+
+### 2. Add to your app
+
+**Next.js:**
+```ts
+// next.config.ts
+import { withAperture } from "@ericmhalvorsen/aperture/next";
+
+export default withAperture({
+  // your existing config
+});
+```
+
+**Vite:**
+```ts
+// vite.config.ts
+import { aperture } from "@ericmhalvorsen/aperture/vite";
+
+export default {
+  plugins: [aperture()],
+};
+```
+
+**Other frameworks:**
+```bash
+# Run in a separate terminal
+npx @ericmhalvorsen/aperture
+```
+
+### 3. Add the client
+
+**React/Next.js:**
+```tsx
+import { Aperture } from "@ericmhalvorsen/aperture/react";
+
+export default function RootLayout({ children }) {
+  return (
+    <html>
+      <body>
+        {children}
+        {process.env.NODE_ENV === "development" && <Aperture />}
+      </body>
+    </html>
+  );
+}
+```
+
+**Vite/Vanilla:**
+```typescript
+// In your main entry file
+import "@ericmhalvorsen/aperture/register";
+```
+
+**No bundler:**
+```html
+<script src="http://localhost:3456/aperture.js"></script>
+```
+
+### 4. Start your dev server
+
+```bash
+npm run dev
+```
+
+You should see:
+- A green dot badge in the bottom-right of your page
+- Console output: `[Aperture] Server running on port 3456`
+
+### 5. Connect your agent
+
+Add to your agent's MCP config:
+
+```json
+{
+  "mcpServers": {
+    "aperture": {
+      "url": "http://localhost:3456/sse"
+    }
+  }
+}
+```
+
+When the agent makes its first request, you'll see an approval dialog in your browser. Click "Allow" to grant access.
+
+### What's next?
+
+- **Try the example app:** `pnpm run example` from this repo
+- **Learn more:** Check out the [Architecture](#architecture) and [Security Model](#security-model) sections
+- **Debug issues:** See the [Debugging](#debugging) section
+
+---
 
 ## How It Works
 
@@ -25,135 +124,6 @@ No extensions. No CORS hacks. Auto-connect your local dev browser to Claude Code
 2. **The browser connects** via WebSocket when `<Aperture />` mounts
 3. **The agent connects** via SSE over HTTP to the already-running server
 4. **You approve** the first request per session — deny blocks the agent entirely
-
-## Installation
-
-```bash
-npm install -D @ericmhalvorsen/aperture
-```
-
-## Try It Out
-
-We've included a barebones Next.js sample app with Aperture (and a custom tool) pre-configured. You can run it with a single command from this repository:
-
-```bash
-pnpm install
-pnpm run example
-```
-
-Then visit `http://localhost:3000` to see the Aperture badge, and connect your favorite MCP client!
-
-## Quick Start
-
-### 1. Start the Server (Dev Sidecar)
-
-#### Next.js
-```ts
-// next.config.ts
-import { withAperture } from "@ericmhalvorsen/aperture/next";
-
-export default withAperture({
-  // your existing Next.js config
-});
-```
-`pnpm dev` now starts both Next.js and Aperture automatically.
-
-#### Vite
-```ts
-// vite.config.ts
-import { aperture } from "@ericmhalvorsen/aperture/vite";
-
-export default {
-  plugins: [aperture(), /* your other plugins */],
-};
-```
-`vite dev` now starts both Vite and Aperture automatically.
-
-#### Manual / Other Frameworks
-```bash
-# In a separate terminal, or from your dev script
-npx @ericmhalvorsen/aperture
-# or with a custom port
-APERTURE_PORT=5678 npx @ericmhalvorsen/aperture
-```
-
-### 2. Load the Browser Client
-
-#### React / Next.js (Recommended)
-```tsx
-import { Aperture } from "@ericmhalvorsen/aperture/react";
-
-export default function RootLayout({ children }) {
-  return (
-    <html>
-      <body>
-        {children}
-        {process.env.NODE_ENV === "development" && <Aperture />}
-      </body>
-    </html>
-  );
-}
-```
-
-#### Self-Registering Import (Vite, webpack, etc.)
-```typescript
-import "@ericmhalvorsen/aperture/register";
-```
-Imports once in your browser entry point. Auto-initializes on `localhost`.
-
-#### Manual Initialization
-```typescript
-import { initAperture } from "@ericmhalvorsen/aperture/client";
-initAperture({ port: 3456 });
-```
-
-#### Standalone Script (no bundler)
-```html
-<script src="http://localhost:3456/aperture.js"></script>
-```
-
-The client will:
-- Render a connection status badge in the bottom-right
-- Listen for incoming agent connections on `ws://localhost:3456`
-- Trigger a glassmorphic authorization modal on the first agent request
-- Track focus/blur to determine which tab the agent should interact with
-
-### 3. Configure Your Agent
-
-You can connect your agent to Aperture using one of two modes:
-
-#### Option A: SSE Remote Mode (Recommended for Sidecar Setup)
-
-If Aperture is running as a sidecar inside your Vite/Next.js app, configure your agent to connect directly to the already-running server's SSE endpoint:
-
-```json
-{
-  "mcpServers": {
-    "aperture": {
-      "url": "http://localhost:3456/sse"
-    }
-  }
-}
-```
-
-The client connects to `http://localhost:3456/sse`, receives an `endpoint` event, and POSTs JSON-RPC messages to the returned `/messages/{sessionId}?sessionId=...` URL.
-
-#### Option B: Standalone Stdio Mode (If Not Using Vite/Next.js Plugin)
-
-If you aren't integrating as a sidecar with a web server, you can configure your agent to spawn the Aperture server standalone over `stdin/stdout`. In this mode, the agent starts the Aperture server, which hosts the WebSocket bridge on port 3456 for your browser tab to connect to:
-
-```json
-{
-  "mcpServers": {
-    "aperture": {
-      "command": "npx",
-      "args": ["-y", "@ericmhalvorsen/aperture", "stdin"]
-    }
-  }
-}
-```
-
----
 
 ## MCP Capabilities
 
