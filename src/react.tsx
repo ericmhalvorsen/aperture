@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { CustomToolDefinition } from "./client.js";
 import { initAperture } from "./client.js";
 
@@ -11,15 +11,22 @@ interface ApertureProps {
 }
 
 export function Aperture({ port, serverUrl, customTools }: ApertureProps) {
+	const customToolsRef = useRef(customTools);
+	customToolsRef.current = customTools;
+
 	useEffect(() => {
-		const client = initAperture({ port, serverUrl, customTools });
+		const client = initAperture({
+			port,
+			serverUrl,
+			customTools: customToolsRef.current,
+		});
 
 		return () => {
 			if (client) {
 				client.disconnect();
 			}
 		};
-	}, [port, serverUrl, customTools]);
+	}, [port, serverUrl]);
 
 	return null;
 }

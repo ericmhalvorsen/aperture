@@ -93,7 +93,7 @@ export class ApertureServer {
 			this.setupStdio();
 		}
 
-		server.listen(port, () => {
+		server.listen(port, "127.0.0.1", () => {
 			if (!this.options.silentStartup) {
 				console.error(
 					`[Aperture] MCP server on ws://localhost:${this.port}/mcp`,

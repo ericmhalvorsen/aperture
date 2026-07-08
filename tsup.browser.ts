@@ -6,4 +6,7 @@ export default defineConfig({
 	outDir: "dist-browser",
 	minify: true,
 	noExternal: ["lit-html"],
+	define: {
+		"import.meta.env.NODE_ENV": '"production"',
+	},
 });
