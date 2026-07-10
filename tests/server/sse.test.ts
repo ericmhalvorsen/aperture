@@ -151,26 +151,4 @@ describe("ApertureServer Streamable HTTP", () => {
 		// Should return 400 or 404 for deleted session
 		expect([400, 404]).toContain(toolsRes.status);
 	});
-
-	test("Legacy SSE endpoint returns deprecation message", async () => {
-		const res = await httpRequest(`http://localhost:${port}/sse`, {
-			method: "GET",
-		});
-
-		expect(res.status).toBe(200);
-		expect(res.body).toContain("deprecated");
-	});
-
-	test("Legacy SSE message endpoint returns 410 Gone", async () => {
-		const res = await httpRequest(
-			`http://localhost:${port}/messages?sessionId=unknown-session`,
-			{
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
-			},
-		);
-		expect(res.status).toBe(410);
-		expect(res.body).toContain("deprecated");
-	});
 });

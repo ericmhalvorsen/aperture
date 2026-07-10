@@ -15,7 +15,13 @@ import {
 	createApertureMcpServer,
 	type SharedServerState,
 } from "./mcp-server.js";
-import { WebSocketTransport } from "./transports.js";
+import {
+	HttpPostTransport,
+	parseJsonRpcBody,
+	SseTransport,
+	WebSocketTransport,
+	writeParseError,
+} from "./transports.js";
 import type { BrowserSession, ClientToServerMessage } from "./types.js";
 
 export class ApertureServer {
@@ -34,6 +40,11 @@ export class ApertureServer {
 	private streamableSessions: Map<
 		string,
 		{ transport: StreamableHTTPServerTransport; server: Server }
+	> = new Map();
+
+	private sseSessions: Map<
+		string,
+		{ transport: SseTransport; server: Server; res: ServerResponse }
 	> = new Map();
 
 	constructor(
@@ -61,12 +72,12 @@ export class ApertureServer {
 			}
 
 			if (req.method === "GET" && req.url === "/sse") {
-				await this.handleLegacySSEConnection(req, res);
+				await this.handleSSEConnection(req, res);
 				return;
 			}
 
 			if (req.method === "POST" && req.url?.startsWith("/messages")) {
-				await this.handleLegacySSEMessage(req, res);
+				await this.handleSSEMessage(req, res);
 				return;
 			}
 
@@ -186,17 +197,91 @@ export class ApertureServer {
 		}
 	}
 
-	private async handleLegacySSEConnection(_req: IncomingMessage, res: ServerResponse) {
-		res.writeHead(200, {
-			"Content-Type": "text/plain",
-			"Content-Encoding": "identity",
+	private async handleSSEConnection(req: IncomingMessage, res: ServerResponse) {
+		const transport = new SseTransport(res);
+		const _host = req.headers.host || `localhost:${this.port}`;
+		const messageUrl = `/messages/${transport.sessionId}?sessionId=${transport.sessionId}`;
+
+		const mcpServer = createApertureMcpServer(
+			this.sessions,
+			this.pendingRequests,
+			this.sharedState,
+		);
+
+		this.sseSessions.set(transport.sessionId, {
+			transport,
+			server: mcpServer,
+			res,
 		});
-		res.end("SSE transport is deprecated. Use /mcp instead.");
+
+		res.writeHead(200, {
+			"Content-Type": "text/event-stream",
+			"Cache-Control": "no-cache, no-transform",
+			Connection: "keep-alive",
+			"Mcp-Session-Id": transport.sessionId,
+		});
+		res.write(`event: endpoint\ndata: ${messageUrl}\n\n`);
+
+		try {
+			await mcpServer.connect(transport);
+		} catch (_err) {
+			this.sseSessions.delete(transport.sessionId);
+			mcpServer.close().catch(() => {});
+			res.end();
+			return;
+		}
+
+		console.error(
+			`[Aperture] SSE session ${transport.sessionId.slice(0, 8)} connected`,
+		);
+
+		const pingInterval = setInterval(() => {
+			res.write(": ping\n\n");
+		}, 30000);
+
+		res.on("close", () => {
+			clearInterval(pingInterval);
+			this.sseSessions.delete(transport.sessionId);
+			mcpServer.close().catch(() => {});
+			console.error(
+				`[Aperture] SSE session ${transport.sessionId.slice(0, 8)} disconnected`,
+			);
+		});
 	}
 
-	private async handleLegacySSEMessage(_req: IncomingMessage, res: ServerResponse) {
-		res.writeHead(410, { "Content-Type": "application/json" });
-		res.end(JSON.stringify({ error: "SSE transport is deprecated. Use /mcp instead." }));
+	private async handleSSEMessage(req: IncomingMessage, res: ServerResponse) {
+		const url = new URL(req.url || "/", `http://localhost:${this.port}`);
+		const headerSessionId = req.headers["mcp-session-id"];
+
+		const pathParts = url.pathname.split("/");
+		const pathSessionId = pathParts.length > 2 ? pathParts[2] : null;
+
+		const sessionId =
+			pathSessionId ||
+			url.searchParams.get("sessionId") ||
+			(Array.isArray(headerSessionId) ? headerSessionId[0] : headerSessionId);
+		const session = sessionId ? this.sseSessions.get(sessionId) : undefined;
+
+		if (!session) {
+			res.writeHead(404, {
+				"Content-Type": "text/plain",
+				"Mcp-Session-Id": sessionId || "",
+			});
+			res.end("Session not found");
+			return;
+		}
+
+		try {
+			const message = await parseJsonRpcBody(req);
+			session.transport.receiveMessage(message);
+			res.writeHead(202, {
+				"Content-Type": "text/plain",
+				"Mcp-Session-Id": sessionId,
+			});
+			res.end("Accepted");
+		} catch {
+			writeParseError(res);
+		}
 	}
 
 	private async serveClientScript(res: ServerResponse) {
