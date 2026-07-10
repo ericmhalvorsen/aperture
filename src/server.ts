@@ -140,7 +140,7 @@ export class ApertureServer {
 
 		transport.onclose = () => {
 			const sid = transport.sessionId;
-			if (sid) {
+			if (sid && this.streamableSessions.has(sid)) {
 				this.streamableSessions.delete(sid);
 				console.error(
 					`[Aperture] Streamable HTTP session ${sid.slice(0, 8)} disconnected`,
