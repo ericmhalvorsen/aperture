@@ -366,7 +366,7 @@ function createDialogOverlay(onDismiss?: () => void) {
 	return { overlay, cleanup, activate };
 }
 
-async function requestDisplayMedia(): Promise<MediaStream | null> {
+export async function requestDisplayMedia(): Promise<MediaStream | null> {
 	try {
 		return await navigator.mediaDevices.getDisplayMedia({
 			video: { displaySurface: "browser" },
@@ -466,7 +466,6 @@ export function showApprovalDialog(
 								.checked=${allowScreenshot}
 								@change=${(e: Event) => {
 									allowScreenshot = (e.target as HTMLInputElement).checked;
-									renderDialog();
 								}}
 							/>
 							<div>
@@ -482,7 +481,6 @@ export function showApprovalDialog(
 								.checked=${allowEval}
 								@change=${(e: Event) => {
 									allowEval = (e.target as HTMLInputElement).checked;
-									renderDialog();
 								}}
 							/>
 							<div>
@@ -498,7 +496,6 @@ export function showApprovalDialog(
 								.checked=${remember24h}
 								@change=${(e: Event) => {
 									remember24h = (e.target as HTMLInputElement).checked;
-									renderDialog();
 								}}
 							/>
 							<div>
@@ -550,8 +547,6 @@ export function showStatusDialog(options: {
 	const isMac = navigator.platform.toLowerCase().includes("mac");
 	const shortcut = isMac ? "Cmd+Shift+A" : "Ctrl+Shift+A";
 
-	let localCapabilities = [...options.capabilities];
-
 	const handleClose = () => cleanup();
 
 	const handleRevoke = () => {
@@ -560,35 +555,6 @@ export function showStatusDialog(options: {
 			approved: false,
 			capabilities: [],
 			stream: null,
-		});
-		cleanup();
-	};
-
-	const handleDeny = () => {
-		options.onApprovalStateChange({
-			approved: false,
-			capabilities: [],
-		});
-		cleanup();
-	};
-
-	const handleAllow = async () => {
-		const capabilities = ["console", "dom", "network", "storage"];
-		if (localCapabilities.includes("evaluate")) capabilities.push("evaluate");
-
-		let stream: MediaStream | undefined;
-		if (localCapabilities.includes("screenshot")) {
-			const mediaStream = await requestDisplayMedia();
-			if (mediaStream) {
-				stream = mediaStream;
-				capabilities.push("screenshot");
-			}
-		}
-
-		options.onApprovalStateChange({
-			approved: true,
-			capabilities,
-			stream,
 		});
 		cleanup();
 	};
@@ -602,79 +568,6 @@ export function showStatusDialog(options: {
 		cleanup();
 	};
 
-	const handleScreenshotToggle = async (e: Event) => {
-		const checked = (e.target as HTMLInputElement).checked;
-		let newCapabilities = [...localCapabilities];
-		let newStream: MediaStream | null | undefined;
-
-		if (checked) {
-			const stream = await requestDisplayMedia();
-			if (stream) {
-				newStream = stream;
-				if (!newCapabilities.includes("screenshot")) {
-					newCapabilities.push("screenshot");
-				}
-			} else {
-				(e.target as HTMLInputElement).checked = false;
-				return;
-			}
-		} else {
-			newStream = null;
-			newCapabilities = newCapabilities.filter((c) => c !== "screenshot");
-		}
-
-		localCapabilities = newCapabilities;
-		options.onApprovalStateChange({
-			approved: options.approved,
-			capabilities: newCapabilities,
-			...(newStream !== undefined && { stream: newStream }),
-		});
-		renderDialog();
-	};
-
-	const handleEvalToggle = (e: Event) => {
-		const checked = (e.target as HTMLInputElement).checked;
-		let newCapabilities = [...localCapabilities];
-		if (checked) {
-			if (!newCapabilities.includes("evaluate"))
-				newCapabilities.push("evaluate");
-		} else {
-			newCapabilities = newCapabilities.filter((c) => c !== "evaluate");
-		}
-		localCapabilities = newCapabilities;
-		options.onApprovalStateChange({
-			approved: options.approved,
-			capabilities: newCapabilities,
-		});
-		renderDialog();
-	};
-
-	const handlePendingScreenshotToggle = (e: Event) => {
-		const checked = (e.target as HTMLInputElement).checked;
-		let newCapabilities = [...localCapabilities];
-		if (checked) {
-			if (!newCapabilities.includes("screenshot"))
-				newCapabilities.push("screenshot");
-		} else {
-			newCapabilities = newCapabilities.filter((c) => c !== "screenshot");
-		}
-		localCapabilities = newCapabilities;
-		renderDialog();
-	};
-
-	const handlePendingEvalToggle = (e: Event) => {
-		const checked = (e.target as HTMLInputElement).checked;
-		let newCapabilities = [...localCapabilities];
-		if (checked) {
-			if (!newCapabilities.includes("evaluate"))
-				newCapabilities.push("evaluate");
-		} else {
-			newCapabilities = newCapabilities.filter((c) => c !== "evaluate");
-		}
-		localCapabilities = newCapabilities;
-		renderDialog();
-	};
-
 	const renderDialog = () => {
 		const connectionStatus =
 			options.wsReadyState === WebSocket.OPEN ? "Connected" : "Disconnected";
@@ -684,8 +577,8 @@ export function showStatusDialog(options: {
 				? "Approved"
 				: "Pending Approval";
 
-		const hasScreenshot = localCapabilities.includes("screenshot");
-		const hasEval = localCapabilities.includes("evaluate");
+		const hasScreenshot = options.capabilities.includes("screenshot");
+		const hasEval = options.capabilities.includes("evaluate");
 		const badgeHidden = options.isBadgeHidden();
 		const hideButtonText = badgeHidden
 			? "Show badge"
@@ -696,66 +589,47 @@ export function showStatusDialog(options: {
 				<div class="aperture-header">
 					<div class="aperture-icon">⚙️</div>
 					<div class="aperture-title-container">
-						<h3 class="aperture-title">Agent Bridge Settings</h3>
-						<p class="aperture-subtitle">Local agent session management</p>
+						<h3 class="aperture-title">Agent Bridge</h3>
+						<p class="aperture-subtitle">${options.approved ? "Session active" : "Waiting for approval"}</p>
 					</div>
 				</div>
 
 				<div class="aperture-body">
 					<div style="margin-bottom: 12px; display: flex; justify-content: space-between; font-size: 13px;">
-						<span>Server Connection:</span>
+						<span>Connection:</span>
 						<strong style="color: ${connectionStatus === "Connected" ? "#10b981" : "#ef4444"};">${connectionStatus}</strong>
 					</div>
-					<div style="margin-bottom: 16px; display: flex; justify-content: space-between; font-size: 13px;">
-						<span>Session Status:</span>
+					<div style="margin-bottom: 12px; display: flex; justify-content: space-between; font-size: 13px;">
+						<span>Status:</span>
 						<strong style="color: ${sessionStatus === "Approved" ? "#10b981" : sessionStatus === "Denied" ? "#ef4444" : "#f59e0b"};">${sessionStatus}</strong>
 					</div>
 
-					<div class="aperture-options" style="margin-top: 12px; border-top: 1px solid var(--ap-border); padding-top: 12px;">
-						<label class="aperture-checkbox-label">
-							<input
-								type="checkbox"
-								id="aperture-status-screenshot"
-								.checked=${hasScreenshot}
-								@change=${
-									options.approved
-										? handleScreenshotToggle
-										: handlePendingScreenshotToggle
-								}
-							/>
-							<div>
-								<strong>Allow screenshot capture</strong>
-								<div class="aperture-checkbox-desc">Requests browser tab/screen sharing for live views</div>
-							</div>
-						</label>
-
-						<label class="aperture-checkbox-label">
-							<input
-								type="checkbox"
-								id="aperture-status-eval"
-								.checked=${hasEval}
-								@change=${
-									options.approved ? handleEvalToggle : handlePendingEvalToggle
-								}
-							/>
-							<div>
-								<strong>Allow JavaScript evaluation</strong>
-								<div class="aperture-checkbox-desc">Enables arbitrary JS execution in this page (dangerous)</div>
-							</div>
-						</label>
-					</div>
+					${options.approved ? html`
+						<div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--ap-border);">
+							<div style="font-size: 12px; color: var(--ap-text-muted); margin-bottom: 8px;">Enabled capabilities:</div>
+							<ul style="font-size: 13px; margin: 0; padding-left: 20px; color: var(--ap-text);">
+								<li>Console logs</li>
+								<li>DOM queries</li>
+								<li>Network requests</li>
+								<li>Storage access</li>
+								${hasScreenshot ? html`<li>Screenshots</li>` : ""}
+								${hasEval ? html`<li>JavaScript evaluation</li>` : ""}
+							</ul>
+						</div>
+					` : ""}
 				</div>
 
 				<div class="aperture-footer">
 					${
 						options.approved
 							? html`
-									<button id="aperture-status-btn-revoke" class="aperture-btn aperture-btn-deny" @click=${handleRevoke}>Revoke Session</button>
+									<button id="aperture-status-btn-revoke" class="aperture-btn aperture-btn-deny" @click=${handleRevoke}>Revoke</button>
 									<button id="aperture-status-btn-close" class="aperture-btn aperture-btn-allow" @click=${handleClose}>Close</button>
 							  `
 							: html`
-									<button id="aperture-status-btn-deny" class="aperture-btn aperture-btn-deny" @click=${handleDeny}>Deny</button>
-									<button id="aperture-status-btn-allow" class="aperture-btn aperture-btn-allow" @click=${handleAllow}>Allow for this session</button>
+									<div style="width: 100%; text-align: center; color: var(--ap-text-muted); font-size: 13px;">
+										Waiting for agent connection...
+									</div>
 							  `
 					}
 				</div>
@@ -763,7 +637,7 @@ export function showStatusDialog(options: {
 				<div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--ap-border); text-align: center;">
 					<button id="aperture-status-btn-hide" class="aperture-btn aperture-btn-deny" style="width: 100%;" @click=${handleHideBadge}>${hideButtonText}</button>
 					<div style="margin-top: 8px; font-size: 11px; color: var(--ap-text-muted);">
-						Re-open any time with <kbd style="font-family: monospace; background: var(--ap-btn-deny-bg); border: 1px solid var(--ap-btn-deny-border); border-radius: 4px; padding: 1px 4px; font-size: 10px;">${shortcut}</kbd>
+						Re-open with <kbd style="font-family: monospace; background: var(--ap-btn-deny-bg); border: 1px solid var(--ap-btn-deny-border); border-radius: 4px; padding: 1px 4px; font-size: 10px;">${shortcut}</kbd>
 					</div>
 				</div>
 			</div>

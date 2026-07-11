@@ -3,6 +3,7 @@ import { patchConsole, patchFetch } from "./client/patches.js";
 import { storage } from "./client/storage.js";
 import {
 	injectStyles,
+	requestDisplayMedia,
 	showApprovalDialog,
 	showStatusDialog,
 } from "./client/ui.js";
@@ -380,10 +381,18 @@ export class ApertureClient {
 
 	async captureScreenshotFromStream(): Promise<string> {
 		if (!this.screenCaptureStream?.active) {
-			const decision = await this.getApproval("MCP Agent");
-			if (!decision.approved || !this.screenCaptureStream?.active) {
-				throw new Error("Screenshot access was not granted.");
+			if (!this.approved || !this.capabilities.includes("screenshot")) {
+				throw new Error(
+					"Screenshot access was not granted. Please approve the connection with screenshot capability enabled.",
+				);
 			}
+			const stream = await this.requestScreenCapture();
+			if (!stream) {
+				throw new Error(
+					"Failed to acquire screen capture. Please try again or re-approve the connection.",
+				);
+			}
+			this.screenCaptureStream = stream;
 		}
 		const track = this.screenCaptureStream.getVideoTracks()[0];
 		if (!track) {
@@ -438,6 +447,10 @@ export class ApertureClient {
 
 	setMediaStream(stream: MediaStream) {
 		this.screenCaptureStream = stream;
+	}
+
+	private async requestScreenCapture(): Promise<MediaStream | null> {
+		return requestDisplayMedia();
 	}
 
 	private openStatusDialog() {
