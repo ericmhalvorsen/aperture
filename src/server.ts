@@ -16,7 +16,6 @@ import {
 	type SharedServerState,
 } from "./mcp-server.js";
 import {
-	HttpPostTransport,
 	parseJsonRpcBody,
 	SseTransport,
 	WebSocketTransport,

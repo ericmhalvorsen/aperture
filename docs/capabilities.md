@@ -10,12 +10,12 @@
 | `browser_click` | Fire click events | Approval |
 | `browser_type` | Type into inputs | Approval |
 | `browser_scroll` | Scroll page or element | Approval |
-| `browser_screenshot` | Capture viewport | Screenshot checkbox + approval modal if stream inactive |
+| `browser_screenshot` | Capture viewport | Screenshot checkbox in initial approval |
 | `browser_evaluate` | Run arbitrary JS | Evaluate checkbox |
 
 ## Screenshot Tool
 
-`browser_screenshot` requires a live screen capture stream from the browser. If the stream is inactive (e.g. after a page refresh), the approval modal will appear in the browser tab. Ask the user to click **Allow** — the modal will re-request `getDisplayMedia()` and the screenshot will proceed.
+`browser_screenshot` requires a live screen capture stream from the browser. The user must enable screenshots in the initial approval dialog. If the stream becomes inactive (e.g. after a page refresh), the browser's native screen share picker will appear to re-acquire the stream — no additional Aperture modal is shown.
 
 ## Multi-Session Support
 

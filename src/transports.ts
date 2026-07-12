@@ -73,39 +73,6 @@ export class SseTransport implements Transport {
 	}
 }
 
-export class HttpPostTransport implements Transport {
-	onclose?: () => void;
-	onerror?: (error: Error) => void;
-	onmessage?: (message: JSONRPCMessage) => void;
-	sessionId = "http-post";
-	private resolveResponse?: () => void;
-
-	constructor(private res: ServerResponse) {}
-
-	async start(): Promise<void> {}
-
-	async send(message: JSONRPCMessage): Promise<void> {
-		if (!this.res.headersSent) {
-			this.res.writeHead(200, { "Content-Type": "application/json" });
-			this.res.end(JSON.stringify(message));
-		}
-		this.resolveResponse?.();
-	}
-
-	async close(): Promise<void> {
-		if (!this.res.headersSent) {
-			this.res.end();
-		}
-	}
-
-	receiveMessage(message: JSONRPCMessage): Promise<void> {
-		return new Promise((resolve) => {
-			this.resolveResponse = resolve;
-			this.onmessage?.(message);
-		});
-	}
-}
-
 export async function parseJsonRpcBody(
 	req: IncomingMessage,
 ): Promise<JSONRPCMessage> {

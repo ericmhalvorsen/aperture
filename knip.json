@@ -1,6 +1,10 @@
 {
-	"$schema": "https://unpkg.com/knip@5/schema.json",
-	"entry": ["src/**/*.ts!", "src/**/*.tsx!"],
-	"ignoreDependencies": ["react"],
-	"ignore": ["tsup.browser.ts"]
+	"$schema": "https://unpkg.com/knip@6/schema.json",
+	"workspaces": {
+		".": {
+			"entry": ["src/**/*.ts!", "src/**/*.tsx!"],
+			"ignoreDependencies": ["react"],
+			"ignore": ["tsup.browser.ts"]
+		}
+	}
 }
