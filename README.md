@@ -6,43 +6,49 @@ No extensions. No CORS hacks. Auto-connect your local dev browser to Claude Code
 
 ## 5-Minute Quickstart
 
-### 1. Install
+### 1. Connect your agent
 
+Configure your MCP-capable agent to start the Aperture bridge server. 
+
+**Claude Desktop / Claude Code**
+Add to `claude_desktop_config.json` (or your Claude Code config):
+```json
+{
+  "mcpServers": {
+    "aperture": {
+      "command": "npx",
+      "args": ["-y", "@ericmhalvorsen/aperture", "stdin"]
+    }
+  }
+}
+```
+
+**Cursor**
+Go to Cursor Settings > MCP and add a new server:
+- Type: `command`
+- Name: `aperture`
+- Command: `npx -y @ericmhalvorsen/aperture stdin`
+
+**OpenCode / Windsurf**
+Add to your `mcp.json` or equivalent configuration:
+```json
+{
+  "mcpServers": {
+    "aperture": {
+      "command": "npx",
+      "args": ["-y", "@ericmhalvorsen/aperture", "stdin"]
+    }
+  }
+}
+```
+
+### 2. Add the client to your app
+
+**React/Next.js:**
 ```bash
 npm install -D @ericmhalvorsen/aperture
 ```
 
-### 2. Add to your app
-
-**Next.js:**
-```ts
-// next.config.ts
-import { withAperture } from "@ericmhalvorsen/aperture/next";
-
-export default withAperture({
-  // your existing config
-});
-```
-
-**Vite:**
-```ts
-// vite.config.ts
-import { aperture } from "@ericmhalvorsen/aperture/vite";
-
-export default {
-  plugins: [aperture()],
-};
-```
-
-**Other frameworks:**
-```bash
-# Run in a separate terminal
-npx @ericmhalvorsen/aperture
-```
-
-### 3. Add the client
-
-**React/Next.js:**
 ```tsx
 import { Aperture } from "@ericmhalvorsen/aperture/react";
 
@@ -59,6 +65,10 @@ export default function RootLayout({ children }) {
 ```
 
 **Vite/Vanilla:**
+```bash
+npm install -D @ericmhalvorsen/aperture
+```
+
 ```typescript
 // In your main entry file
 import "@ericmhalvorsen/aperture/register";
@@ -69,30 +79,15 @@ import "@ericmhalvorsen/aperture/register";
 <script src="http://localhost:3456/aperture.js"></script>
 ```
 
-### 4. Start your dev server
+### 3. Start your dev server
+
+Start your app's dev server as usual:
 
 ```bash
 npm run dev
 ```
 
-You should see:
-- A green dot badge in the bottom-right of your page
-- Console output: `[Aperture] Server running on port 3456`
-
-### 5. Connect your agent
-
-Add to your agent's MCP config:
-
-```json
-{
-  "mcpServers": {
-    "aperture": {
-      "url": "http://localhost:3456/mcp"
-    }
-  }
-}
-```
-
+You should see a green dot badge in the bottom-right of your page when the agent is connected.
 When the agent makes its first request, you'll see an approval dialog in your browser. Click "Allow" to grant access.
 
 ### More

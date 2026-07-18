@@ -40,7 +40,7 @@ Browser Tab ←content script / chrome.debugger→ Chrome Extension ←native me
 **Pros**: Zero infrastructure, install extension and go, single process
 **Cons**: chrome.debugger shows "debugging" bar, ~2-3 weeks, per-agent native host setup, more complex
 
-**Why not doing this now**: The server startup problem is already solved by stack plugins (Next.js/Vite) and can be solved by any MCP harness. The lightweight extension gives us "works on any site" without the complexity of native messaging.
+**Why not doing this now**: The server startup problem is already solved by the fact that the MCP harness can start the server via stdio. The lightweight extension gives us "works on any site" without the complexity of native messaging.
 
 ## Implementation Plan
 

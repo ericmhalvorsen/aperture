@@ -604,7 +604,9 @@ export function showStatusDialog(options: {
 						<strong style="color: ${sessionStatus === "Approved" ? "#10b981" : sessionStatus === "Denied" ? "#ef4444" : "#f59e0b"};">${sessionStatus}</strong>
 					</div>
 
-					${options.approved ? html`
+					${
+						options.approved
+							? html`
 						<div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--ap-border);">
 							<div style="font-size: 12px; color: var(--ap-text-muted); margin-bottom: 8px;">Enabled capabilities:</div>
 							<ul style="font-size: 13px; margin: 0; padding-left: 20px; color: var(--ap-text);">
@@ -616,7 +618,9 @@ export function showStatusDialog(options: {
 								${hasEval ? html`<li>JavaScript evaluation</li>` : ""}
 							</ul>
 						</div>
-					` : ""}
+					`
+							: ""
+					}
 				</div>
 
 				<div class="aperture-footer">

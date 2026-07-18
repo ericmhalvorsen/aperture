@@ -532,8 +532,7 @@ if (typeof window !== "undefined") {
 		setTimeout(() => {
 			if (!window.__apertureInstance__) {
 				const port = window.__APERTURE_PORT__ || 3456;
-				const serverUrl =
-					window.__APERTURE_URL__ || `ws://localhost:${port}`;
+				const serverUrl = window.__APERTURE_URL__ || `ws://localhost:${port}`;
 				console.log(
 					"[Aperture] No manual initialization detected. Auto-connecting...",
 				);

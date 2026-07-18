@@ -4,10 +4,10 @@
 	"description": "Browser-to-agent bridge for AI agents. Auto-connects your dev browser to any MCP-capable agent.",
 	"license": "MIT",
 	"author": "Eric M. Halvorsen",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/ericmhalvorsen/aperture.git"
-  },
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/ericmhalvorsen/aperture.git"
+	},
 	"homepage": "https://github.com/ericmhalvorsen/aperture#readme",
 	"bugs": {
 		"url": "https://github.com/ericmhalvorsen/aperture/issues"
@@ -49,14 +49,6 @@
 		"./register": {
 			"types": "./dist/register.d.ts",
 			"default": "./dist/register.js"
-		},
-		"./next": {
-			"types": "./dist/frameworks/next.d.ts",
-			"default": "./dist/frameworks/next.js"
-		},
-		"./vite": {
-			"types": "./dist/frameworks/vite.d.ts",
-			"default": "./dist/frameworks/vite.js"
 		}
 	},
 	"bin": {
@@ -107,8 +99,12 @@
 		"react-dom": ">=18"
 	},
 	"peerDependenciesMeta": {
-		"react": { "optional": true },
-		"react-dom": { "optional": true }
+		"react": {
+			"optional": true
+		},
+		"react-dom": {
+			"optional": true
+		}
 	},
 	"files": [
 		"dist",

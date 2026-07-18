@@ -24,10 +24,10 @@ This file provides context and instructions for AI agents working on the Apertur
    - Manages browser sessions and tool routing
    - Handles approval flow and security
 
-3. **Framework Plugins** (`src/frameworks/`)
-   - Next.js: `withAperture()` wrapper
-   - Vite: `aperture()` plugin
-   - Both auto-start the server and inject client
+3. **Framework Integrations** (`src/react.tsx`, `src/register.ts`)
+   - `<Aperture />` React component for Next.js/React apps
+   - Auto-initialization script for Vanilla/Vite apps
+   - Connects to the local server via WebSocket
 
 ### Key Patterns
 
@@ -68,11 +68,7 @@ src/
 ├── types.ts           # Shared types
 ├── react.tsx          # React component
 ├── register.ts        # Auto-initialization
-├── bin.ts             # CLI entry point
-└── frameworks/        # Framework plugins
-    ├── next.ts
-    ├── vite.ts
-    └── shared.ts
+└── bin.ts             # CLI entry point
 ```
 
 ## Common Tasks

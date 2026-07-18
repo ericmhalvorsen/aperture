@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
 import {
 	createServer,
@@ -9,7 +10,6 @@ import { fileURLToPath } from "node:url";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { randomUUID } from "node:crypto";
 import { type WebSocket, WebSocketServer } from "ws";
 import {
 	createApertureMcpServer,
@@ -58,7 +58,10 @@ export class ApertureServer {
 		this.options = options;
 		const server = createServer(async (req, res) => {
 			res.setHeader("Access-Control-Allow-Origin", "*");
-			res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+			res.setHeader(
+				"Access-Control-Allow-Methods",
+				"GET, POST, DELETE, OPTIONS",
+			);
 			res.setHeader(
 				"Access-Control-Allow-Headers",
 				"Content-Type, Mcp-Session-Id, MCP-Protocol-Version, Accept",
@@ -121,7 +124,10 @@ export class ApertureServer {
 		});
 	}
 
-	private async handleStreamableHttp(req: IncomingMessage, res: ServerResponse) {
+	private async handleStreamableHttp(
+		req: IncomingMessage,
+		res: ServerResponse,
+	) {
 		const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
 		if (sessionId && this.streamableSessions.has(sessionId)) {
@@ -163,7 +169,10 @@ export class ApertureServer {
 		await transport.handleRequest(req, res);
 	}
 
-	private async handleStreamableHttpGet(req: IncomingMessage, res: ServerResponse) {
+	private async handleStreamableHttpGet(
+		req: IncomingMessage,
+		res: ServerResponse,
+	) {
 		const sessionId = req.headers["mcp-session-id"] as string | undefined;
 		if (!sessionId || !this.streamableSessions.has(sessionId)) {
 			res.writeHead(400, { "Content-Type": "application/json" });
@@ -177,7 +186,10 @@ export class ApertureServer {
 		}
 	}
 
-	private async handleStreamableHttpDelete(req: IncomingMessage, res: ServerResponse) {
+	private async handleStreamableHttpDelete(
+		req: IncomingMessage,
+		res: ServerResponse,
+	) {
 		const sessionId = req.headers["mcp-session-id"] as string | undefined;
 		if (!sessionId || !this.streamableSessions.has(sessionId)) {
 			res.writeHead(404, { "Content-Type": "application/json" });
