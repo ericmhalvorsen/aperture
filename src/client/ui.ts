@@ -64,7 +64,7 @@ export function injectStyles() {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
 
-    #aperture-badge {
+     #aperture-badge {
       position: fixed;
       bottom: 12px;
       right: 12px;
@@ -85,6 +85,23 @@ export function injectStyles() {
       transition: transform 0.2s ease, box-shadow 0.2s ease;
       cursor: pointer;
       user-select: none;
+    }
+
+    #aperture-badge[data-position="bottom-left"] {
+      right: auto;
+      left: 12px;
+    }
+
+    #aperture-badge[data-position="top-right"] {
+      bottom: auto;
+      top: 12px;
+    }
+
+    #aperture-badge[data-position="top-left"] {
+      bottom: auto;
+      right: auto;
+      top: 12px;
+      left: 12px;
     }
 
     #aperture-badge:hover {
@@ -368,10 +385,11 @@ function createDialogOverlay(onDismiss?: () => void) {
 
 export async function requestDisplayMedia(): Promise<MediaStream | null> {
 	try {
-		return await navigator.mediaDevices.getDisplayMedia({
+		const options = {
 			video: { displaySurface: "browser" },
 			audio: false,
-		} as { video: { displaySurface: string }; audio: false });
+		} satisfies DisplayMediaStreamOptions;
+		return await navigator.mediaDevices.getDisplayMedia(options);
 	} catch (err) {
 		console.warn(
 			"[Aperture] Failed to acquire screen share stream for screenshots:",
@@ -383,7 +401,7 @@ export async function requestDisplayMedia(): Promise<MediaStream | null> {
 
 export function showApprovalDialog(
 	agentName: string,
-	onApprovalStateChange: (state: {
+	_onApprovalStateChange: (state: {
 		stream?: MediaStream | null;
 		capabilities?: string[];
 	}) => void,
@@ -422,13 +440,7 @@ export function showApprovalDialog(
 			const capabilities = ["console", "dom", "network", "storage"];
 			if (allowEval) capabilities.push("evaluate");
 
-			if (allowScreenshot) {
-				const stream = await requestDisplayMedia();
-				if (stream) {
-					onApprovalStateChange({ stream });
-					capabilities.push("screenshot");
-				}
-			}
+			if (allowScreenshot) capabilities.push("screenshot");
 
 			cleanup();
 			resolve({ approved: true, capabilities, ttlMs });
@@ -465,7 +477,9 @@ export function showApprovalDialog(
 								id="aperture-allow-screenshot"
 								.checked=${allowScreenshot}
 								@change=${(e: Event) => {
-									allowScreenshot = (e.target as HTMLInputElement).checked;
+									if (e.currentTarget instanceof HTMLInputElement) {
+										allowScreenshot = e.currentTarget.checked;
+									}
 								}}
 							/>
 							<div>
@@ -480,7 +494,9 @@ export function showApprovalDialog(
 								id="aperture-allow-eval"
 								.checked=${allowEval}
 								@change=${(e: Event) => {
-									allowEval = (e.target as HTMLInputElement).checked;
+									if (e.currentTarget instanceof HTMLInputElement) {
+										allowEval = e.currentTarget.checked;
+									}
 								}}
 							/>
 							<div>
@@ -495,7 +511,9 @@ export function showApprovalDialog(
 								id="aperture-remember-24h"
 								.checked=${remember24h}
 								@change=${(e: Event) => {
-									remember24h = (e.target as HTMLInputElement).checked;
+									if (e.currentTarget instanceof HTMLInputElement) {
+										remember24h = e.currentTarget.checked;
+									}
 								}}
 							/>
 							<div>

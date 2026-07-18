@@ -21,10 +21,7 @@
 	"linter": {
 		"enabled": true,
 		"rules": {
-			"recommended": true,
-			"suspicious": {
-				"noExplicitAny": "off"
-			}
+			"recommended": true
 		}
 	},
 	"javascript": {
@@ -46,7 +43,6 @@
 			"linter": {
 				"rules": {
 					"suspicious": {
-						"noExplicitAny": "off",
 						"noDocumentCookie": "off"
 					},
 					"complexity": {

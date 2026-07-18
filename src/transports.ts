@@ -1,7 +1,38 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
+import {
+	type JSONRPCMessage,
+	JSONRPCMessageSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 import { WebSocket } from "ws";
+
+type WebSocketLike = {
+	readyState: number;
+	on(
+		event: "message",
+		listener: (raw: { toString(): string }) => void,
+	): unknown;
+	on(event: "close", listener: () => void): unknown;
+	on(event: "error", listener: (error: Error) => void): unknown;
+	send(data: string): void;
+	close(): void;
+};
+
+type SseResponse = {
+	on(event: "close", listener: () => void): unknown;
+	write(chunk: string): unknown;
+	end(): unknown;
+};
+
+type JsonRpcRequest = {
+	on(event: "data", listener: (chunk: string | Buffer) => void): unknown;
+	on(event: "end", listener: () => void): unknown;
+	on(event: "error", listener: (error: Error) => void): unknown;
+};
+
+type JsonRpcErrorResponse = {
+	writeHead(statusCode: number, headers: { "Content-Type": string }): unknown;
+	end(chunk: string): unknown;
+};
 
 export class WebSocketTransport implements Transport {
 	onclose?: () => void;
@@ -9,13 +40,17 @@ export class WebSocketTransport implements Transport {
 	onmessage?: (message: JSONRPCMessage) => void;
 	sessionId: string;
 
-	constructor(private ws: WebSocket) {
+	constructor(private ws: WebSocketLike) {
 		this.sessionId = crypto.randomUUID();
 
 		ws.on("message", (raw) => {
 			try {
-				const msg = JSON.parse(raw.toString()) as JSONRPCMessage;
-				this.onmessage?.(msg);
+				const parsed: unknown = JSON.parse(raw.toString());
+				const result = JSONRPCMessageSchema.safeParse(parsed);
+				if (!result.success) {
+					throw new Error("Invalid JSON-RPC message");
+				}
+				this.onmessage?.(result.data);
 			} catch (err) {
 				this.onerror?.(err instanceof Error ? err : new Error(String(err)));
 			}
@@ -49,7 +84,7 @@ export class SseTransport implements Transport {
 	onmessage?: (message: JSONRPCMessage) => void;
 	sessionId: string;
 
-	constructor(private res: ServerResponse) {
+	constructor(private res: SseResponse) {
 		this.sessionId = crypto.randomUUID();
 
 		res.on("close", () => {
@@ -74,7 +109,7 @@ export class SseTransport implements Transport {
 }
 
 export async function parseJsonRpcBody(
-	req: IncomingMessage,
+	req: JsonRpcRequest,
 ): Promise<JSONRPCMessage> {
 	return new Promise((resolve, reject) => {
 		let body = "";
@@ -83,7 +118,13 @@ export async function parseJsonRpcBody(
 		});
 		req.on("end", () => {
 			try {
-				resolve(JSON.parse(body) as JSONRPCMessage);
+				const parsed: unknown = JSON.parse(body);
+				const result = JSONRPCMessageSchema.safeParse(parsed);
+				if (!result.success) {
+					reject(new Error("Invalid JSON-RPC message"));
+					return;
+				}
+				resolve(result.data);
 			} catch (err) {
 				reject(err);
 			}
@@ -92,7 +133,7 @@ export async function parseJsonRpcBody(
 	});
 }
 
-export function writeParseError(res: ServerResponse): void {
+export function writeParseError(res: JsonRpcErrorResponse): void {
 	res.writeHead(400, { "Content-Type": "application/json" });
 	res.end(
 		JSON.stringify({

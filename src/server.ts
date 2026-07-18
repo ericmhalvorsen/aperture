@@ -21,10 +21,11 @@ import {
 	WebSocketTransport,
 	writeParseError,
 } from "./transports.js";
-import type { BrowserSession, ClientToServerMessage } from "./types.js";
+import { type BrowserSession, isClientToServerMessage } from "./types.js";
 
 export class ApertureServer {
-	private wss: WebSocketServer;
+	private wss?: WebSocketServer;
+	private httpServer: ReturnType<typeof createServer>;
 	private sessions: Map<string, BrowserSession> = new Map();
 	private pendingRequests: Map<string, (result: unknown) => void> = new Map();
 	private sharedState: SharedServerState = { mcpInitialized: false };
@@ -105,14 +106,16 @@ export class ApertureServer {
 				res.end("Not Found");
 			}
 		});
+		this.httpServer = server;
 
-		this.wss = new WebSocketServer({ server, path: "/mcp" });
-		this.setupWSS();
+		const wss = new WebSocketServer({ server, path: "/mcp" });
+		this.wss = wss;
+		this.setupWSS(wss);
 		if (this.options.stdio) {
 			this.setupStdio();
 		}
 
-		server.listen(port, "127.0.0.1", () => {
+		server.listen({ port, host: "127.0.0.1", reuseAddr: true }, () => {
 			if (!this.options.silentStartup) {
 				console.error(
 					`[Aperture] MCP server on http://localhost:${this.port}/mcp`,
@@ -128,7 +131,7 @@ export class ApertureServer {
 		req: IncomingMessage,
 		res: ServerResponse,
 	) {
-		const sessionId = req.headers["mcp-session-id"] as string | undefined;
+		const sessionId = getHeaderValue(req.headers["mcp-session-id"]);
 
 		if (sessionId && this.streamableSessions.has(sessionId)) {
 			const session = this.streamableSessions.get(sessionId);
@@ -154,7 +157,11 @@ export class ApertureServer {
 			this.sharedState,
 		);
 
+		let closing = false;
 		transport.onclose = () => {
+			if (closing) return;
+			closing = true;
+
 			const sid = transport.sessionId;
 			if (sid && this.streamableSessions.has(sid)) {
 				this.streamableSessions.delete(sid);
@@ -173,7 +180,7 @@ export class ApertureServer {
 		req: IncomingMessage,
 		res: ServerResponse,
 	) {
-		const sessionId = req.headers["mcp-session-id"] as string | undefined;
+		const sessionId = getHeaderValue(req.headers["mcp-session-id"]);
 		if (!sessionId || !this.streamableSessions.has(sessionId)) {
 			res.writeHead(400, { "Content-Type": "application/json" });
 			res.end(JSON.stringify({ error: "Invalid or missing session ID" }));
@@ -190,7 +197,7 @@ export class ApertureServer {
 		req: IncomingMessage,
 		res: ServerResponse,
 	) {
-		const sessionId = req.headers["mcp-session-id"] as string | undefined;
+		const sessionId = getHeaderValue(req.headers["mcp-session-id"]);
 		if (!sessionId || !this.streamableSessions.has(sessionId)) {
 			res.writeHead(404, { "Content-Type": "application/json" });
 			res.end(JSON.stringify({ error: "Session not found" }));
@@ -270,7 +277,7 @@ export class ApertureServer {
 		const sessionId =
 			pathSessionId ||
 			url.searchParams.get("sessionId") ||
-			(Array.isArray(headerSessionId) ? headerSessionId[0] : headerSessionId);
+			getHeaderValue(headerSessionId);
 		const session = sessionId ? this.sseSessions.get(sessionId) : undefined;
 
 		if (!session) {
@@ -326,8 +333,8 @@ export class ApertureServer {
 		}
 	}
 
-	private setupWSS() {
-		this.wss.on("connection", (ws, req) => {
+	private setupWSS(wss: WebSocketServer) {
+		wss.on("connection", (ws, req) => {
 			const url = new URL(req.url || "/", "http://localhost");
 			const clientType = url.searchParams.get("type") || "unknown";
 
@@ -354,7 +361,9 @@ export class ApertureServer {
 
 		ws.on("message", (raw) => {
 			try {
-				const msg = JSON.parse(raw.toString()) as ClientToServerMessage;
+				const parsed: unknown = JSON.parse(raw.toString());
+				if (!isClientToServerMessage(parsed)) return;
+				const msg = parsed;
 				if (msg.type === "register") {
 					session.url = msg.url;
 					session.title = msg.title;
@@ -431,6 +440,22 @@ export class ApertureServer {
 			process.exit(0);
 		});
 	}
+
+	async close(): Promise<void> {
+		this.wss?.close();
+		await new Promise<void>((resolve, reject) => {
+			this.httpServer.close((error) => {
+				if (error) reject(error);
+				else resolve();
+			});
+		});
+	}
+}
+
+function getHeaderValue(
+	value: string | string[] | undefined,
+): string | undefined {
+	return Array.isArray(value) ? value[0] : value;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

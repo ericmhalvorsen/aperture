@@ -1,4 +1,4 @@
-import { TOOL_HANDLERS } from "./client/handlers.js";
+import { getToolHandler } from "./client/handlers.js";
 import { patchConsole, patchFetch } from "./client/patches.js";
 import { storage } from "./client/storage.js";
 import {
@@ -9,10 +9,11 @@ import {
 } from "./client/ui.js";
 import type {
 	ClientToServerMessage,
-	ServerToClientMessage,
+	JsonSchema,
 	ToolMetadata,
 	WSToolCallMessage,
 } from "./types.js";
+import { isServerToClientMessage } from "./types.js";
 
 declare global {
 	interface Window {
@@ -25,12 +26,18 @@ declare global {
 
 export interface CustomToolDefinition {
 	description: string;
-	inputSchema: object;
+	inputSchema: JsonSchema;
 	handler: (
 		client: ApertureClient,
-		args: Record<string, any>,
-	) => any | Promise<any>;
+		args: Record<string, unknown>,
+	) => unknown | Promise<unknown>;
 }
+
+export type BadgePosition =
+	| "bottom-right"
+	| "bottom-left"
+	| "top-right"
+	| "top-left";
 
 interface BridgeConfig {
 	serverUrl: string;
@@ -40,6 +47,7 @@ interface BridgeConfig {
 		dismissed?: boolean;
 	}>;
 	customTools?: Record<string, CustomToolDefinition>;
+	badgePosition?: BadgePosition;
 }
 
 export class ApertureClient {
@@ -119,9 +127,15 @@ export class ApertureClient {
 		if (approved === "true" && !isStale) {
 			this.approved = true;
 			this.denied = false;
-			this.capabilities = JSON.parse(
+			const storedCapabilities: unknown = JSON.parse(
 				storage.get("aperture_capabilities") || "[]",
 			);
+			if (
+				Array.isArray(storedCapabilities) &&
+				storedCapabilities.every((value) => typeof value === "string")
+			) {
+				this.capabilities = storedCapabilities;
+			}
 		} else if (approved === "false") {
 			this.denied = true;
 			this.approved = false;
@@ -209,7 +223,9 @@ export class ApertureClient {
 
 		this.ws.onmessage = async (event) => {
 			try {
-				const msg = JSON.parse(event.data) as ServerToClientMessage;
+				const parsed: unknown = JSON.parse(event.data);
+				if (!isServerToClientMessage(parsed)) return;
+				const msg = parsed;
 				if (msg.type === "tool_call") {
 					await this.handleToolCall(msg);
 				} else if (msg.type === "agent_connected") {
@@ -263,6 +279,8 @@ export class ApertureClient {
 		if (!this.badgeElement) {
 			this.badgeElement = document.createElement("div");
 			this.badgeElement.id = "aperture-badge";
+			this.badgeElement.dataset.position =
+				this.config.badgePosition ?? "bottom-right";
 			this.badgeElement.title = "Manage Aperture session (Ctrl+Shift+A)";
 
 			const dot = document.createElement("span");
@@ -308,7 +326,7 @@ export class ApertureClient {
 			}
 		}
 
-		const builtInHandler = TOOL_HANDLERS[msg.tool];
+		const builtInHandler = getToolHandler(msg.tool);
 		const customHandler = this.config.customTools?.[msg.tool]?.handler;
 		const handler = builtInHandler || customHandler;
 
@@ -372,14 +390,19 @@ export class ApertureClient {
 			const result = await this.config.onApprovalRequest(agentName);
 			return { ...result, dismissed: false };
 		}
-		return showApprovalDialog(agentName, (state: any) => {
+		return showApprovalDialog(agentName, (state) => {
 			if (state.stream !== undefined) {
 				this.screenCaptureStream = state.stream;
 			}
 		});
 	}
 
-	async captureScreenshotFromStream(): Promise<string> {
+	async captureScreenshotFromStream(selector?: string): Promise<string> {
+		const cropElement = selector ? document.querySelector(selector) : undefined;
+		if (selector && !cropElement) {
+			throw new Error(`Element not found matching selector: ${selector}`);
+		}
+		const cropRect = cropElement?.getBoundingClientRect();
 		if (!this.screenCaptureStream?.active) {
 			if (!this.approved || !this.capabilities.includes("screenshot")) {
 				throw new Error(
@@ -420,14 +443,45 @@ export class ApertureClient {
 			}
 		});
 
+		const videoWidth = video.videoWidth || 800;
+		const videoHeight = video.videoHeight || 600;
+		const viewportWidth = window.innerWidth || videoWidth;
+		const viewportHeight = window.innerHeight || videoHeight;
+		const source = cropRect
+			? {
+					left: Math.max(0, cropRect.left),
+					top: Math.max(0, cropRect.top),
+					right: Math.min(viewportWidth, cropRect.right),
+					bottom: Math.min(viewportHeight, cropRect.bottom),
+				}
+			: { left: 0, top: 0, right: viewportWidth, bottom: viewportHeight };
+		if (source.right <= source.left || source.bottom <= source.top) {
+			throw new Error(`Element is outside the viewport: ${selector}`);
+		}
+		const scaleX = videoWidth / viewportWidth;
+		const scaleY = videoHeight / viewportHeight;
+		const sourceX = source.left * scaleX;
+		const sourceY = source.top * scaleY;
+		const sourceWidth = (source.right - source.left) * scaleX;
+		const sourceHeight = (source.bottom - source.top) * scaleY;
 		const canvas = document.createElement("canvas");
-		canvas.width = video.videoWidth || 800;
-		canvas.height = video.videoHeight || 600;
+		canvas.width = Math.max(1, Math.round(sourceWidth));
+		canvas.height = Math.max(1, Math.round(sourceHeight));
 		const ctx = canvas.getContext("2d");
 		if (!ctx) {
 			throw new Error("Could not get 2D context from canvas");
 		}
-		ctx.drawImage(video, 0, 0);
+		ctx.drawImage(
+			video,
+			sourceX,
+			sourceY,
+			sourceWidth,
+			sourceHeight,
+			0,
+			0,
+			canvas.width,
+			canvas.height,
+		);
 		const dataUrl = canvas.toDataURL("image/png");
 
 		video.srcObject = null;
@@ -493,6 +547,7 @@ export function initAperture(options?: {
 	port?: number;
 	serverUrl?: string;
 	customTools?: Record<string, CustomToolDefinition>;
+	badgePosition?: BadgePosition;
 }) {
 	if (typeof window === "undefined") return;
 
@@ -515,6 +570,7 @@ export function initAperture(options?: {
 	const client = new ApertureClient({
 		serverUrl,
 		customTools: options?.customTools,
+		badgePosition: options?.badgePosition,
 	});
 	client.connect();
 	window.__apertureInstance__ = client;

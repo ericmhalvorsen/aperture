@@ -1,7 +1,22 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { WebSocket } from "ws";
 import { ApertureServer } from "../../src/server.js";
-import { sendMcpRequest } from "./helpers.js";
+import {
+	isInitializeResponse,
+	isRpcErrorResponse,
+	isToolResultResponse,
+	isToolsListResponse,
+	sendMcpRequest,
+} from "./helpers.js";
+
+function isSessionList(value: unknown): value is { sessions: unknown[] } {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"sessions" in value &&
+		Array.isArray(value.sessions)
+	);
+}
 
 describe("ApertureServer MCP over WebSocket", () => {
 	let server: ApertureServer;
@@ -11,15 +26,7 @@ describe("ApertureServer MCP over WebSocket", () => {
 		server = new ApertureServer(port, { silentStartup: true });
 	});
 
-	afterAll(() => {
-		// @ts-expect-error accessing private for cleanup
-		server.wss.close();
-		// @ts-expect-error accessing private for cleanup
-		if (server.wss.options.server) {
-			// @ts-expect-error accessing private for cleanup
-			server.wss.options.server.close();
-		}
-	});
+	afterAll(() => server.close());
 
 	test("allows WebSocket connections on /mcp", async () => {
 		const ws = new WebSocket(`ws://localhost:${port}/mcp`);
@@ -40,18 +47,17 @@ describe("ApertureServer MCP over WebSocket", () => {
 			ws.on("error", reject);
 		});
 
-		const res = await sendMcpRequest<{
-			id: string;
-			result: {
-				protocolVersion: string;
-				serverInfo: { name: string; version: string };
-				capabilities: { tools?: object };
-			};
-		}>(ws, "initialize", {
-			protocolVersion: "2024-11-05",
-			capabilities: {},
-			clientInfo: { name: "test", version: "1.0" },
-		});
+		const res = await sendMcpRequest(
+			ws,
+			"initialize",
+			{
+				protocolVersion: "2024-11-05",
+				capabilities: {},
+				clientInfo: { name: "test", version: "1.0" },
+			},
+			undefined,
+			isInitializeResponse,
+		);
 
 		expect(res.result.protocolVersion).toBe("2024-11-05");
 		expect(res.result.serverInfo.name).toBe("aperture");
@@ -73,9 +79,13 @@ describe("ApertureServer MCP over WebSocket", () => {
 			clientInfo: { name: "test", version: "1.0" },
 		});
 
-		const list = await sendMcpRequest<{
-			result: { tools: Array<{ name: string; description: string }> };
-		}>(ws, "tools/list");
+		const list = await sendMcpRequest(
+			ws,
+			"tools/list",
+			undefined,
+			undefined,
+			isToolsListResponse,
+		);
 
 		const names = list.result.tools.map((t) => t.name);
 		expect(names).toContain("browser_dom_query");
@@ -93,9 +103,13 @@ describe("ApertureServer MCP over WebSocket", () => {
 			ws.on("error", reject);
 		});
 
-		const res = await sendMcpRequest<{
-			error: { code: number; message: string };
-		}>(ws, "tools/unknown");
+		const res = await sendMcpRequest(
+			ws,
+			"tools/unknown",
+			undefined,
+			undefined,
+			isRpcErrorResponse,
+		);
 
 		expect(res.error.code).toBe(-32601);
 		expect(res.error.message).toBe("Method not found");
@@ -116,15 +130,16 @@ describe("ApertureServer MCP over WebSocket", () => {
 			clientInfo: { name: "test", version: "1.0" },
 		});
 
-		const res = await sendMcpRequest<{
-			result: {
-				content: Array<{ type: string; text: string }>;
-				isError: boolean;
-			};
-		}>(ws, "tools/call", {
-			name: "browser_nonexistent",
-			arguments: {},
-		});
+		const res = await sendMcpRequest(
+			ws,
+			"tools/call",
+			{
+				name: "browser_nonexistent",
+				arguments: {},
+			},
+			undefined,
+			isToolResultResponse,
+		);
 
 		expect(res.result.isError).toBe(true);
 		expect(res.result.content[0].text).toContain("Tool not found");
@@ -145,18 +160,20 @@ describe("ApertureServer MCP over WebSocket", () => {
 			clientInfo: { name: "test", version: "1.0" },
 		});
 
-		const res = await sendMcpRequest<{
-			result: { content: Array<{ type: string; text: string }> };
-		}>(ws, "tools/call", {
-			name: "browser_list_sessions",
-			arguments: {},
-		});
+		const res = await sendMcpRequest(
+			ws,
+			"tools/call",
+			{
+				name: "browser_list_sessions",
+				arguments: {},
+			},
+			undefined,
+			isToolResultResponse,
+		);
 
-		const parsed = JSON.parse(res.result.content[0].text) as {
-			sessions: Array<unknown>;
-		};
-		expect(Array.isArray(parsed.sessions)).toBe(true);
-		expect(parsed.sessions.length).toBe(0);
+		const parsed: unknown = JSON.parse(res.result.content[0].text);
+		expect(isSessionList(parsed)).toBe(true);
+		if (isSessionList(parsed)) expect(parsed.sessions).toHaveLength(0);
 
 		ws.close();
 	});
@@ -174,15 +191,16 @@ describe("ApertureServer MCP over WebSocket", () => {
 			clientInfo: { name: "test", version: "1.0" },
 		});
 
-		const res = await sendMcpRequest<{
-			result: {
-				content: Array<{ type: string; text: string }>;
-				isError: boolean;
-			};
-		}>(ws, "tools/call", {
-			name: "browser_dom_query",
-			arguments: { selector: "body" },
-		});
+		const res = await sendMcpRequest(
+			ws,
+			"tools/call",
+			{
+				name: "browser_dom_query",
+				arguments: { selector: "body" },
+			},
+			undefined,
+			isToolResultResponse,
+		);
 
 		expect(res.result.isError).toBe(true);
 		expect(res.result.content[0].text).toContain(

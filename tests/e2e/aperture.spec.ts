@@ -5,18 +5,18 @@ test.describe("Aperture Integration", () => {
 	let ws: WebSocket;
 	let aperturePort: number;
 
-	test.beforeEach((_args, testInfo) => {
+	test.beforeEach(({ page: _page }, testInfo) => {
 		if (testInfo.project.name === "next-aperture") aperturePort = 3456;
 		else if (testInfo.project.name === "vanilla-aperture") aperturePort = 3457;
 		else if (testInfo.project.name === "vite-aperture") aperturePort = 3458;
 		else aperturePort = 3456; // fallback for standalone runs
 	});
 
-	test.afterEach(() => {
+	test.afterEach(async () => {
 		if (ws) {
 			ws.close();
 			// Small delay to ensure server processes the disconnect
-			new Promise((resolve) => setTimeout(resolve, 50));
+			await new Promise((resolve) => setTimeout(resolve, 50));
 		}
 	});
 
@@ -85,9 +85,7 @@ test.describe("Aperture Integration", () => {
 
 		// Status dialog should appear
 		await expect(overlay).toBeVisible();
-		await expect(page.locator(".aperture-title")).toHaveText(
-			"Agent Bridge Settings",
-		);
+		await expect(page.locator(".aperture-title")).toHaveText("Agent Bridge");
 
 		// It should show Approved
 		await expect(page.locator(".aperture-body")).toContainText("Approved");
@@ -99,6 +97,9 @@ test.describe("Aperture Integration", () => {
 	});
 
 	test("can deny the approval and it is remembered", async ({ page }) => {
+		page.on("console", (msg) =>
+			console.log(`[Browser Console] ${msg.type()}: ${msg.text()}`),
+		);
 		await page.goto("/");
 
 		// Simulate an MCP Agent connecting
@@ -134,13 +135,14 @@ test.describe("Aperture Integration", () => {
 		await expect(overlay).toBeVisible();
 		await expect(page.locator(".aperture-body")).toContainText("Denied");
 
-		// Click allow from the status dialog to test state change
-		await page.locator("#aperture-status-btn-allow").click();
+		// Close via Escape (status dialog has no close button when denied)
+		await page.keyboard.press("Escape");
 		await expect(overlay).not.toBeVisible();
 
-		// Open again and it should be approved
+		// Reopen: denial should persist
 		await badge.click();
-		await expect(page.locator(".aperture-body")).toContainText("Approved");
+		await expect(overlay).toBeVisible();
+		await expect(page.locator(".aperture-body")).toContainText("Denied");
 	});
 
 	test("can hide the badge", async ({ page }) => {

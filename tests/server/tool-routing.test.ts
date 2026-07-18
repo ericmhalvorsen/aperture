@@ -1,7 +1,14 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { WebSocket } from "ws";
 import { ApertureServer } from "../../src/server.js";
-import { sendMcpRequest, waitForMessage } from "./helpers.js";
+import {
+	isRegisteredMessage,
+	isToolCallMessage,
+	isToolResultResponse,
+	isToolsListResponse,
+	sendMcpRequest,
+	waitForMessage,
+} from "./helpers.js";
 
 describe("ApertureServer Tool routing", () => {
 	let server: ApertureServer;
@@ -11,15 +18,7 @@ describe("ApertureServer Tool routing", () => {
 		server = new ApertureServer(port, { silentStartup: true });
 	});
 
-	afterAll(() => {
-		// @ts-expect-error accessing private for cleanup
-		server.wss.close();
-		// @ts-expect-error accessing private for cleanup
-		if (server.wss.options.server) {
-			// @ts-expect-error accessing private for cleanup
-			server.wss.options.server.close();
-		}
-	});
+	afterAll(() => server.close());
 
 	async function connectBrowser(
 		customTools?: Array<{
@@ -43,7 +42,7 @@ describe("ApertureServer Tool routing", () => {
 			}),
 		);
 
-		await waitForMessage<any>(browser, (m) => m.type === "registered");
+		await waitForMessage(browser, isRegisteredMessage);
 
 		browser.send(
 			JSON.stringify({
@@ -77,19 +76,18 @@ describe("ApertureServer Tool routing", () => {
 		const browser = await connectBrowser();
 		const mcp = await connectMcp();
 
-		const toolCallPromise = waitForMessage<{
-			type: string;
-			requestId: string;
-			tool: string;
-			args: object;
-		}>(browser, (m) => m.type === "tool_call");
+		const toolCallPromise = waitForMessage(browser, isToolCallMessage);
 
-		const mcpResponsePromise = sendMcpRequest<{
-			result: { content: Array<{ type: string; text: string }> };
-		}>(mcp, "tools/call", {
-			name: "browser_dom_query",
-			arguments: { selector: "body" },
-		});
+		const mcpResponsePromise = sendMcpRequest(
+			mcp,
+			"tools/call",
+			{
+				name: "browser_dom_query",
+				arguments: { selector: "body" },
+			},
+			undefined,
+			isToolResultResponse,
+		);
 
 		const toolCall = await toolCallPromise;
 		expect(toolCall.tool).toBe("browser_dom_query");
@@ -119,9 +117,13 @@ describe("ApertureServer Tool routing", () => {
 		]);
 		const mcp = await connectMcp();
 
-		const list = await sendMcpRequest<{
-			result: { tools: Array<{ name: string }> };
-		}>(mcp, "tools/list");
+		const list = await sendMcpRequest(
+			mcp,
+			"tools/list",
+			undefined,
+			undefined,
+			isToolsListResponse,
+		);
 
 		const names = list.result.tools.map((t) => t.name);
 		expect(names).toContain("custom_test_tool");
@@ -140,18 +142,18 @@ describe("ApertureServer Tool routing", () => {
 		]);
 		const mcp = await connectMcp();
 
-		const toolCallPromise = waitForMessage<{
-			type: string;
-			requestId: string;
-			tool: string;
-		}>(browser, (m) => m.type === "tool_call");
+		const toolCallPromise = waitForMessage(browser, isToolCallMessage);
 
-		const mcpResponsePromise = sendMcpRequest<{
-			result: { content: Array<{ type: string; text: string }> };
-		}>(mcp, "tools/call", {
-			name: "custom_echo",
-			arguments: { text: "hello" },
-		});
+		const mcpResponsePromise = sendMcpRequest(
+			mcp,
+			"tools/call",
+			{
+				name: "custom_echo",
+				arguments: { text: "hello" },
+			},
+			undefined,
+			isToolResultResponse,
+		);
 
 		const toolCall = await toolCallPromise;
 		expect(toolCall.tool).toBe("custom_echo");
@@ -177,15 +179,16 @@ describe("ApertureServer Tool routing", () => {
 		const browser = await connectBrowser();
 		const mcp = await connectMcp();
 
-		const res = await sendMcpRequest<{
-			result: {
-				content: Array<{ type: string; text: string }>;
-				isError: boolean;
-			};
-		}>(mcp, "tools/call", {
-			name: "browser_evaluate",
-			arguments: { expression: "1+1" },
-		});
+		const res = await sendMcpRequest(
+			mcp,
+			"tools/call",
+			{
+				name: "browser_evaluate",
+				arguments: { expression: "1+1" },
+			},
+			undefined,
+			isToolResultResponse,
+		);
 
 		expect(res.result.isError).toBe(true);
 		expect(res.result.content[0].text).toContain("requires explicit approval");

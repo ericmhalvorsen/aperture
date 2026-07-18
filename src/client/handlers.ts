@@ -1,16 +1,20 @@
 import type { ApertureClient } from "../client.js";
 import { getConsoleBuffer, getNetworkBuffer } from "./patches.js";
 
-export const TOOL_HANDLERS: Record<
-	string,
-	(client: ApertureClient, args: Record<string, any>) => any | Promise<any>
-> = {
+export type ToolClient = Pick<ApertureClient, "captureScreenshotFromStream">;
+
+export type ToolHandler = (
+	client: ToolClient,
+	args: Record<string, unknown>,
+) => unknown | Promise<unknown>;
+
+export const TOOL_HANDLERS = {
 	browser_dom_query: (_client, { selector, includeHtml = false }) => {
 		const elements = Array.from(document.querySelectorAll(String(selector)));
 		return elements.map((el) => ({
 			tag: el.tagName.toLowerCase(),
 			text: el.textContent?.slice(0, 200) || "",
-			visible: !!(el as HTMLElement).offsetParent,
+			visible: el instanceof HTMLElement && !!el.offsetParent,
 			attributes: Object.fromEntries(
 				Array.from(el.attributes).map((a) => [a.name, a.value]),
 			),
@@ -75,9 +79,11 @@ export const TOOL_HANDLERS: Record<
 		return { error: `Unknown type: ${type}. Use 'localStorage' or 'cookie'.` };
 	},
 
-	browser_screenshot: async (client) => {
+	browser_screenshot: async (client, { selector }) => {
 		try {
-			const dataUrl = await client.captureScreenshotFromStream();
+			const dataUrl = await client.captureScreenshotFromStream(
+				typeof selector === "string" ? selector : undefined,
+			);
 			return { base64: dataUrl.split(",")[1], format: "png" };
 		} catch (e: unknown) {
 			return { error: e instanceof Error ? e.message : String(e) };
@@ -94,14 +100,12 @@ export const TOOL_HANDLERS: Record<
 	},
 
 	browser_click: (_client, { selector }) => {
-		const element = document.querySelector(
-			String(selector),
-		) as HTMLElement | null;
+		const element = document.querySelector(String(selector));
 		if (!element) {
 			return { error: `Element not found matching selector: ${selector}` };
 		}
 
-		element.focus();
+		if (element instanceof HTMLElement) element.focus();
 
 		const events = [
 			"pointerdown",
@@ -121,28 +125,30 @@ export const TOOL_HANDLERS: Record<
 	},
 
 	browser_type: (_client, { selector, text }) => {
-		const element = document.querySelector(
-			String(selector),
-		) as HTMLElement | null;
+		const element = document.querySelector(String(selector));
 		if (!element) {
 			return { error: `Element not found matching selector: ${selector}` };
 		}
 
-		const isInput = element instanceof HTMLInputElement;
-		const isTextArea = element instanceof HTMLTextAreaElement;
-
-		if (isInput || isTextArea) {
-			const proto = isInput
-				? HTMLInputElement.prototype
-				: HTMLTextAreaElement.prototype;
+		if (element instanceof HTMLInputElement) {
+			const proto = HTMLInputElement.prototype;
 			const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
 			if (setter) {
 				setter.call(element, String(text));
 			} else {
-				(element as HTMLInputElement | HTMLTextAreaElement).value =
-					String(text);
+				element.value = String(text);
 			}
-		} else if (element.isContentEditable) {
+		} else if (element instanceof HTMLTextAreaElement) {
+			const setter = Object.getOwnPropertyDescriptor(
+				HTMLTextAreaElement.prototype,
+				"value",
+			)?.set;
+			if (setter) {
+				setter.call(element, String(text));
+			} else {
+				element.value = String(text);
+			}
+		} else if (element instanceof HTMLElement && element.isContentEditable) {
 			element.textContent = String(text);
 		} else {
 			return {
@@ -157,9 +163,7 @@ export const TOOL_HANDLERS: Record<
 
 	browser_scroll: (_client, { selector, x, y, scrollIntoView }) => {
 		if (selector) {
-			const element = document.querySelector(
-				String(selector),
-			) as HTMLElement | null;
+			const element = document.querySelector(String(selector));
 			if (!element) {
 				return { error: `Element not found matching selector: ${selector}` };
 			}
@@ -170,6 +174,9 @@ export const TOOL_HANDLERS: Record<
 					inline: "nearest",
 				});
 				return { success: true };
+			}
+			if (!(element instanceof HTMLElement)) {
+				return { error: `Element cannot be scrolled: ${selector}` };
 			}
 			if (x !== undefined) element.scrollLeft = Number(x);
 			if (y !== undefined) element.scrollTop = Number(y);
@@ -189,4 +196,9 @@ export const TOOL_HANDLERS: Record<
 			};
 		}
 	},
-};
+} satisfies Record<string, ToolHandler>;
+
+export function getToolHandler(name: string): ToolHandler | undefined {
+	const entry = Object.entries(TOOL_HANDLERS).find(([key]) => key === name);
+	return entry?.[1];
+}

@@ -10,15 +10,7 @@ describe("ApertureServer Streamable HTTP", () => {
 		server = new ApertureServer(port, { silentStartup: true });
 	});
 
-	afterAll(() => {
-		// @ts-expect-error accessing private for cleanup
-		server.wss.close();
-		// @ts-expect-error accessing private for cleanup
-		if (server.wss.options.server) {
-			// @ts-expect-error accessing private for cleanup
-			server.wss.options.server.close();
-		}
-	});
+	afterAll(() => server.close());
 
 	test("Streamable HTTP endpoint accepts initialize request", async () => {
 		const res = await httpRequest(`http://localhost:${port}/mcp`, {

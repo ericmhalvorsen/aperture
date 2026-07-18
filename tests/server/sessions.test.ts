@@ -1,7 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { WebSocket } from "ws";
 import { ApertureServer } from "../../src/server.js";
-import { sendMcpRequest, waitForMessage } from "./helpers.js";
+import {
+	isRegisteredMessage,
+	isToolCallMessage,
+	isToolResultResponse,
+	sendMcpRequest,
+	waitForMessage,
+} from "./helpers.js";
 
 describe("ApertureServer Sessions", () => {
 	let server: ApertureServer;
@@ -11,15 +17,7 @@ describe("ApertureServer Sessions", () => {
 		server = new ApertureServer(port, { silentStartup: true });
 	});
 
-	afterAll(() => {
-		// @ts-expect-error accessing private for cleanup
-		server.wss.close();
-		// @ts-expect-error accessing private for cleanup
-		if (server.wss.options.server) {
-			// @ts-expect-error accessing private for cleanup
-			server.wss.options.server.close();
-		}
-	});
+	afterAll(() => server.close());
 
 	test("routes to most recently active session when multiple are approved", async () => {
 		const b1 = new WebSocket(`ws://localhost:${port}/mcp?type=browser`);
@@ -52,8 +50,8 @@ describe("ApertureServer Sessions", () => {
 		);
 
 		await Promise.all([
-			waitForMessage<any>(b1, (m) => m.type === "registered"),
-			waitForMessage<any>(b2, (m) => m.type === "registered"),
+			waitForMessage(b1, isRegisteredMessage),
+			waitForMessage(b2, isRegisteredMessage),
 		]);
 
 		b1.send(
@@ -90,20 +88,21 @@ describe("ApertureServer Sessions", () => {
 		});
 
 		// b2 should receive the tool call because it was focused last
-		const toolCallPromise = waitForMessage<{
-			type: string;
-			requestId: string;
-		}>(b2, (m) => m.type === "tool_call");
+		const toolCallPromise = waitForMessage(b2, isToolCallMessage);
 
-		const mcpResponsePromise = sendMcpRequest<{
-			result: { content: Array<{ type: string; text: string }> };
-		}>(mcp, "tools/call", {
-			name: "browser_dom_query",
-			arguments: { selector: "body" },
-		});
+		const mcpResponsePromise = sendMcpRequest(
+			mcp,
+			"tools/call",
+			{
+				name: "browser_dom_query",
+				arguments: { selector: "body" },
+			},
+			undefined,
+			isToolResultResponse,
+		);
 
 		const toolCall = await toolCallPromise;
-		expect((toolCall as any).tool).toBe("browser_dom_query");
+		expect(toolCall.tool).toBe("browser_dom_query");
 
 		b2.send(
 			JSON.stringify({
@@ -136,9 +135,7 @@ describe("ApertureServer Sessions", () => {
 			}),
 		);
 
-		const registered = await waitForMessage<{
-			sessionId: string;
-		}>(browser, (m: any) => m.type === "registered");
+		const registered = await waitForMessage(browser, isRegisteredMessage);
 
 		browser.send(
 			JSON.stringify({
@@ -162,18 +159,19 @@ describe("ApertureServer Sessions", () => {
 			clientInfo: { name: "test", version: "1.0" },
 		});
 
-		const toolCallPromise = waitForMessage<{
-			type: string;
-			requestId: string;
-		}>(browser, (m) => m.type === "tool_call");
+		const toolCallPromise = waitForMessage(browser, isToolCallMessage);
 
-		const mcpResponsePromise = sendMcpRequest<{
-			result: { content: Array<{ type: string; text: string }> };
-		}>(mcp, "tools/call", {
-			name: "browser_dom_query",
-			arguments: { selector: "body" },
-			sessionId: registered.sessionId,
-		});
+		const mcpResponsePromise = sendMcpRequest(
+			mcp,
+			"tools/call",
+			{
+				name: "browser_dom_query",
+				arguments: { selector: "body" },
+				sessionId: registered.sessionId,
+			},
+			undefined,
+			isToolResultResponse,
+		);
 
 		const toolCall = await toolCallPromise;
 		browser.send(

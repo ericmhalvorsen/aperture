@@ -4,12 +4,16 @@ import { TOOL_HANDLERS } from "../src/client/handlers.js";
 import type { ApertureClient } from "../src/client.js";
 
 describe("Built-in Tool Handlers", () => {
-	let mockClient: ApertureClient;
+	let mockClient: Pick<ApertureClient, "captureScreenshotFromStream">;
+	let captureScreenshotFromStream: ReturnType<
+		typeof vi.fn<() => Promise<string>>
+	>;
 
 	beforeEach(() => {
+		captureScreenshotFromStream = vi.fn<() => Promise<string>>();
 		mockClient = {
-			captureScreenshotFromStream: vi.fn(),
-		} as any;
+			captureScreenshotFromStream,
+		};
 
 		document.body.innerHTML = "";
 		document.title = "Test Page";
@@ -101,7 +105,7 @@ describe("Built-in Tool Handlers", () => {
 	});
 
 	test("browser_screenshot success", async () => {
-		(mockClient.captureScreenshotFromStream as any).mockResolvedValue(
+		captureScreenshotFromStream.mockResolvedValue(
 			"data:image/png;base64,iVBORw0KGgo",
 		);
 		const handler = TOOL_HANDLERS.browser_screenshot;
@@ -111,16 +115,29 @@ describe("Built-in Tool Handlers", () => {
 	});
 
 	test("browser_screenshot error", async () => {
-		(mockClient.captureScreenshotFromStream as any).mockRejectedValue(
-			new Error("No stream"),
-		);
+		captureScreenshotFromStream.mockRejectedValue(new Error("No stream"));
 		const handler = TOOL_HANDLERS.browser_screenshot;
 		const res = await handler(mockClient, {});
 		expect(res.error).toBe("No stream");
 	});
 
+	test("browser_screenshot forwards an optional selector", async () => {
+		captureScreenshotFromStream.mockResolvedValue(
+			"data:image/png;base64,iVBORw0KGgo",
+		);
+
+		await TOOL_HANDLERS.browser_screenshot(mockClient, {
+			selector: "#target",
+		});
+
+		expect(captureScreenshotFromStream).toHaveBeenCalledWith("#target");
+	});
+
 	test("browser_evaluate", async () => {
-		(window as any).testVal = 42;
+		Object.defineProperty(window, "testVal", {
+			configurable: true,
+			value: 42,
+		});
 		const handler = TOOL_HANDLERS.browser_evaluate;
 		const res1 = await handler(mockClient, {
 			expression: "window.testVal + 8",
@@ -207,13 +224,19 @@ describe("Built-in Tool Handlers", () => {
 		const handler = TOOL_HANDLERS.browser_scroll;
 
 		// Window scroll
-		const origScrollTo = window.scrollTo;
 		let scrollLeft = 0,
 			scrollTop = 0;
-		window.scrollTo = (options: any) => {
-			scrollLeft = options.left;
-			scrollTop = options.top;
-		};
+		const scrollTo = vi
+			.spyOn(window, "scrollTo")
+			.mockImplementation((options: ScrollToOptions | number, y?: number) => {
+				if (typeof options === "number") {
+					scrollLeft = options;
+					scrollTop = y ?? 0;
+				} else {
+					scrollLeft = options.left ?? 0;
+					scrollTop = options.top ?? 0;
+				}
+			});
 
 		const res1 = await handler(mockClient, { x: 100, y: 200 });
 		expect(res1.success).toBe(true);
@@ -246,6 +269,6 @@ describe("Built-in Tool Handlers", () => {
 		expect(res3.success).toBe(true);
 		expect(intoViewCalled).toBe(true);
 
-		window.scrollTo = origScrollTo;
+		scrollTo.mockRestore();
 	});
 });

@@ -6,6 +6,18 @@ import {
 	showStatusDialog,
 } from "../src/client/ui.js";
 
+function getElement<T extends Element>(
+	root: ParentNode | null | undefined,
+	selector: string,
+	guard: (element: Element) => element is T,
+): T {
+	const element = root?.querySelector(selector);
+	if (!element || !guard(element)) {
+		throw new Error(`Expected ${selector} to match the expected element`);
+	}
+	return element;
+}
+
 describe("UI Module", () => {
 	beforeEach(() => {
 		document.head.innerHTML = "";
@@ -32,9 +44,12 @@ describe("UI Module", () => {
 		);
 
 		// Simulate deny
-		const denyBtn = overlay?.querySelector(
+		const denyBtn = getElement(
+			overlay,
 			"#aperture-btn-deny",
-		) as HTMLButtonElement;
+			(element): element is HTMLButtonElement =>
+				element instanceof HTMLButtonElement,
+		);
 		expect(denyBtn).not.toBeNull();
 		denyBtn.click();
 
@@ -49,27 +64,63 @@ describe("UI Module", () => {
 		const overlay = document.getElementById("aperture-dialog-overlay");
 
 		// Turn off screenshot to avoid getUserMedia in test
-		const screenshotBox = overlay?.querySelector(
+		const screenshotBox = getElement(
+			overlay,
 			"#aperture-allow-screenshot",
-		) as HTMLInputElement;
+			(element): element is HTMLInputElement =>
+				element instanceof HTMLInputElement,
+		);
 		screenshotBox.checked = false;
 		screenshotBox.dispatchEvent(new Event("change"));
 
-		const evalBox = overlay?.querySelector(
+		const evalBox = getElement(
+			overlay,
 			"#aperture-allow-eval",
-		) as HTMLInputElement;
+			(element): element is HTMLInputElement =>
+				element instanceof HTMLInputElement,
+		);
 		evalBox.checked = true;
 		evalBox.dispatchEvent(new Event("change"));
 
-		const allowBtn = overlay?.querySelector(
+		const allowBtn = getElement(
+			overlay,
 			"#aperture-btn-allow",
-		) as HTMLButtonElement;
+			(element): element is HTMLButtonElement =>
+				element instanceof HTMLButtonElement,
+		);
 		allowBtn.click();
 
 		const result = await promise;
 		expect(result.approved).toBe(true);
 		expect(result.capabilities).toContain("evaluate");
 		expect(result.capabilities).not.toContain("screenshot");
+	});
+
+	test("defers screenshot permission until a screenshot is requested", async () => {
+		const originalMediaDevices = navigator.mediaDevices;
+		const getDisplayMedia = vi.fn();
+		Object.defineProperty(navigator, "mediaDevices", {
+			configurable: true,
+			value: { getDisplayMedia },
+		});
+
+		const promise = showApprovalDialog("TestAgent", vi.fn());
+		const overlay = document.getElementById("aperture-dialog-overlay");
+		const allowBtn = getElement(
+			overlay,
+			"#aperture-btn-allow",
+			(element): element is HTMLButtonElement =>
+				element instanceof HTMLButtonElement,
+		);
+		allowBtn.click();
+
+		const result = await promise;
+		expect(result.capabilities).toContain("screenshot");
+		expect(getDisplayMedia).not.toHaveBeenCalled();
+		Object.defineProperty(navigator, "mediaDevices", {
+			configurable: true,
+			value: originalMediaDevices,
+		});
 	});
 
 	test("showApprovalDialog handles escape key", async () => {
@@ -103,9 +154,12 @@ describe("UI Module", () => {
 		expect(overlay?.innerHTML).toContain("Approved");
 
 		// Click close
-		const closeBtn = overlay?.querySelector(
+		const closeBtn = getElement(
+			overlay,
 			"#aperture-status-btn-close",
-		) as HTMLButtonElement;
+			(element): element is HTMLButtonElement =>
+				element instanceof HTMLButtonElement,
+		);
 		closeBtn.click();
 	});
 
@@ -126,9 +180,12 @@ describe("UI Module", () => {
 		});
 
 		const overlay = document.getElementById("aperture-dialog-overlay");
-		const revokeBtn = overlay?.querySelector(
+		const revokeBtn = getElement(
+			overlay,
 			"#aperture-status-btn-revoke",
-		) as HTMLButtonElement;
+			(element): element is HTMLButtonElement =>
+				element instanceof HTMLButtonElement,
+		);
 		revokeBtn.click();
 
 		expect(revokeFn).toHaveBeenCalled();
