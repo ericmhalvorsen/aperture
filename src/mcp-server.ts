@@ -5,7 +5,7 @@ import {
 	ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { WebSocket } from "ws";
-import { BROWSER_TOOLS, type BrowserToolName } from "./tools.js";
+import { BROWSER_TOOLS } from "./tools.js";
 import type { BrowserSession, ToolMetadata } from "./types.js";
 
 export interface SharedServerState {
@@ -40,11 +40,13 @@ export function createApertureMcpServer(
 	});
 
 	server.setRequestHandler(ListToolsRequestSchema, async () => {
-		const tools = Object.entries(BROWSER_TOOLS).map(([name, def]) => ({
-			name,
-			description: def.description,
-			inputSchema: def.inputSchema,
-		})) as Array<ToolMetadata>;
+		const tools: ToolMetadata[] = Object.entries(BROWSER_TOOLS).map(
+			([name, def]) => ({
+				name,
+				description: def.description,
+				inputSchema: def.inputSchema,
+			}),
+		);
 
 		const addedCustomTools = new Set<string>();
 		for (const session of sessions.values()) {
@@ -64,7 +66,7 @@ export function createApertureMcpServer(
 	server.setRequestHandler(CallToolRequestSchema, async (request) => {
 		const params = request.params;
 		const toolName = params.name;
-		const args = (params.arguments || {}) as Record<string, unknown>;
+		const args = params.arguments ?? {};
 
 		if (toolName === "browser_list_sessions") {
 			const sessionList = Array.from(sessions.entries()).map(([id, s]) => ({
@@ -85,7 +87,7 @@ export function createApertureMcpServer(
 			};
 		}
 
-		let isValid = !!BROWSER_TOOLS[toolName as BrowserToolName];
+		let isValid = Object.hasOwn(BROWSER_TOOLS, toolName);
 		if (!isValid) {
 			for (const session of sessions.values()) {
 				if (
@@ -105,7 +107,8 @@ export function createApertureMcpServer(
 			};
 		}
 
-		const sessionId = args.sessionId as string | undefined;
+		const sessionId =
+			typeof args.sessionId === "string" ? args.sessionId : undefined;
 
 		if (sessionId) {
 			const session = sessions.get(sessionId);

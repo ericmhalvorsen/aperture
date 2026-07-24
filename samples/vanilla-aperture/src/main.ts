@@ -1,10 +1,18 @@
 import './style.css'
+import { initAperture } from '@ericmhalvorsen/aperture/client'
 import typescriptLogo from './assets/typescript.svg'
 import viteLogo from './assets/vite.svg'
 import heroImg from './assets/hero.png'
 import { setupCounter } from './counter.ts'
 
-document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
+initAperture({
+  port: Number(import.meta.env.VITE_APERTURE_PORT) || 3456,
+})
+
+const app = document.querySelector<HTMLDivElement>('#app')
+if (!app) throw new Error('Missing #app root')
+
+app.innerHTML = `
 <section id="center">
   <div class="hero">
     <img src="${heroImg}" class="base" width="170" height="179">

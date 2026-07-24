@@ -1,7 +1,9 @@
+export type JsonSchema = Readonly<Record<string, unknown>>;
+
 export interface ToolMetadata {
 	name: string;
 	description: string;
-	inputSchema: object;
+	inputSchema: JsonSchema;
 }
 
 interface WSRegisterMessage {
@@ -62,4 +64,72 @@ export interface BrowserSession {
 	lastActiveAt: number;
 	capabilities: Set<string>;
 	customTools?: ToolMetadata[];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+function isStringArray(value: unknown): value is string[] {
+	return (
+		Array.isArray(value) && value.every((item) => typeof item === "string")
+	);
+}
+
+function isToolMetadata(value: unknown): value is ToolMetadata {
+	return (
+		isRecord(value) &&
+		typeof value.name === "string" &&
+		typeof value.description === "string" &&
+		isRecord(value.inputSchema)
+	);
+}
+
+export function isClientToServerMessage(
+	value: unknown,
+): value is ClientToServerMessage {
+	if (!isRecord(value) || typeof value.type !== "string") return false;
+
+	switch (value.type) {
+		case "register":
+			return (
+				typeof value.url === "string" &&
+				typeof value.title === "string" &&
+				(value.customTools === undefined ||
+					(Array.isArray(value.customTools) &&
+						value.customTools.every(isToolMetadata)))
+			);
+		case "approval":
+			return (
+				typeof value.approved === "boolean" &&
+				(value.capabilities === undefined || isStringArray(value.capabilities))
+			);
+		case "focus":
+			return typeof value.focused === "boolean";
+		case "result":
+			return typeof value.requestId === "string" && "result" in value;
+		default:
+			return false;
+	}
+}
+
+export function isServerToClientMessage(
+	value: unknown,
+): value is ServerToClientMessage {
+	if (!isRecord(value) || typeof value.type !== "string") return false;
+
+	switch (value.type) {
+		case "registered":
+			return typeof value.sessionId === "string";
+		case "agent_connected":
+			return true;
+		case "tool_call":
+			return (
+				typeof value.requestId === "string" &&
+				typeof value.tool === "string" &&
+				isRecord(value.args)
+			);
+		default:
+			return false;
+	}
 }

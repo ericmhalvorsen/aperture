@@ -37,13 +37,10 @@ Load this skill when:
 - `src/client/storage.ts` - localStorage wrapper for approval persistence
 
 ### Framework Integration
-- `src/frameworks/next.ts` - Next.js plugin (`withAperture`)
-- `src/frameworks/vite.ts` - Vite plugin (`aperture`)
-- `src/frameworks/shared.ts` - Shared server startup logic
-
-### Entry Points
 - `src/react.tsx` - React component (`<Aperture />`)
 - `src/register.ts` - Auto-initialization script
+
+### Entry Points
 - `src/bin.ts` - CLI entry point
 
 ## Architecture Patterns
@@ -118,7 +115,8 @@ Load this skill when:
    {
      "mcpServers": {
        "aperture": {
-         "url": "http://localhost:3456/mcp"
+         "command": "npx",
+         "args": ["-y", "@ericmhalvorsen/aperture", "stdin"]
        }
      }
    }

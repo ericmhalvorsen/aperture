@@ -28,21 +28,23 @@ export default defineConfig({
 	webServer: [
 		{
 			command:
-				"pnpm --filter next-aperture run build && pnpm --filter next-aperture run start",
+				"pnpm --filter next-aperture run build && node dist/bin.js -p 3456 -- pnpm --filter next-aperture run start",
 			port: 3000,
 			env: { APERTURE_PORT: "3456" },
 			reuseExistingServer: !process.env.CI,
 		},
 		{
-			command: "pnpm --filter vanilla-aperture run dev",
+			command:
+				"node dist/bin.js -p 3457 -- pnpm --filter vanilla-aperture run dev",
 			port: 5173,
-			env: { APERTURE_PORT: "3457" },
+			env: { APERTURE_PORT: "3457", VITE_APERTURE_PORT: "3457" },
 			reuseExistingServer: !process.env.CI,
 		},
 		{
-			command: "pnpm --filter vite-aperture run dev",
+			command:
+				"node dist/bin.js -p 3458 -- pnpm --filter vite-aperture run dev",
 			port: 5174,
-			env: { APERTURE_PORT: "3458" },
+			env: { APERTURE_PORT: "3458", VITE_APERTURE_PORT: "3458" },
 			reuseExistingServer: !process.env.CI,
 		},
 	],

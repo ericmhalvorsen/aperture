@@ -1,18 +1,20 @@
-import { TOOL_HANDLERS } from "./client/handlers.js";
+import { getToolHandler } from "./client/handlers.js";
 import { patchConsole, patchFetch } from "./client/patches.js";
 import { storage } from "./client/storage.js";
 import {
 	injectStyles,
 	requestDisplayMedia,
 	showApprovalDialog,
+	showScreenshotPermissionDialog,
 	showStatusDialog,
 } from "./client/ui.js";
 import type {
 	ClientToServerMessage,
-	ServerToClientMessage,
+	JsonSchema,
 	ToolMetadata,
 	WSToolCallMessage,
 } from "./types.js";
+import { isServerToClientMessage } from "./types.js";
 
 declare global {
 	interface Window {
@@ -25,12 +27,18 @@ declare global {
 
 export interface CustomToolDefinition {
 	description: string;
-	inputSchema: object;
+	inputSchema: JsonSchema;
 	handler: (
 		client: ApertureClient,
-		args: Record<string, any>,
-	) => any | Promise<any>;
+		args: Record<string, unknown>,
+	) => unknown | Promise<unknown>;
 }
+
+export type BadgePosition =
+	| "bottom-right"
+	| "bottom-left"
+	| "top-right"
+	| "top-left";
 
 interface BridgeConfig {
 	serverUrl: string;
@@ -40,10 +48,12 @@ interface BridgeConfig {
 		dismissed?: boolean;
 	}>;
 	customTools?: Record<string, CustomToolDefinition>;
+	badgePosition?: BadgePosition;
 }
 
 export class ApertureClient {
 	private ws: WebSocket | null = null;
+	private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	private config: BridgeConfig;
 	private approved = false;
 	private denied = false;
@@ -92,19 +102,12 @@ export class ApertureClient {
 	private hideBadgeFor24h() {
 		const until = String(Date.now() + 24 * 60 * 60 * 1000);
 		storage.set("aperture_badge_hidden_until", until);
-		if (this.badgeElement) {
-			this.badgeElement.remove();
-			this.badgeElement = null;
-		}
+		this.removeBadge();
 	}
 
 	private showBadge() {
 		storage.remove("aperture_badge_hidden_until");
-		if (this.ws) {
-			const status =
-				this.ws.readyState === WebSocket.OPEN ? "connected" : "connecting";
-			this.updateBadge(status);
-		}
+		this.updateBadge();
 	}
 
 	private loadCachedApproval() {
@@ -114,14 +117,27 @@ export class ApertureClient {
 		const defaultTtlMs = 60 * 60 * 1000;
 		const ttlMs = storedTtl ? Number(storedTtl) : defaultTtlMs;
 
-		const isStale = timestamp ? Date.now() - Number(timestamp) > ttlMs : true;
+		const isApproved = approved === "true";
+		const isStale =
+			isApproved && (timestamp ? Date.now() - Number(timestamp) > ttlMs : true);
 
-		if (approved === "true" && !isStale) {
+		if (isApproved && !isStale) {
 			this.approved = true;
 			this.denied = false;
-			this.capabilities = JSON.parse(
-				storage.get("aperture_capabilities") || "[]",
-			);
+			let storedCapabilities: unknown;
+			try {
+				storedCapabilities = JSON.parse(
+					storage.get("aperture_capabilities") || "[]",
+				);
+			} catch {
+				storedCapabilities = [];
+			}
+			if (
+				Array.isArray(storedCapabilities) &&
+				storedCapabilities.every((value) => typeof value === "string")
+			) {
+				this.capabilities = storedCapabilities;
+			}
 		} else if (approved === "false") {
 			this.denied = true;
 			this.approved = false;
@@ -166,13 +182,17 @@ export class ApertureClient {
 	}
 
 	connect() {
+		if (this.reconnectTimer) {
+			clearTimeout(this.reconnectTimer);
+			this.reconnectTimer = null;
+		}
 		const url = new URL("/mcp", this.config.serverUrl);
 		url.searchParams.set("type", "browser");
 
-		this.updateBadge("connecting");
-		this.ws = new WebSocket(url.toString());
+		const ws = new WebSocket(url.toString());
+		this.ws = ws;
 
-		this.ws.onopen = () => {
+		ws.onopen = () => {
 			const customToolsPayload: ToolMetadata[] = this.config.customTools
 				? Object.entries(this.config.customTools).map(([name, def]) => ({
 						name,
@@ -189,7 +209,7 @@ export class ApertureClient {
 			});
 
 			console.log("[Aperture] Connected to server");
-			this.updateBadge("connected");
+			this.updateBadge();
 
 			if (this.approved) {
 				this.send({
@@ -207,32 +227,44 @@ export class ApertureClient {
 			}
 		};
 
-		this.ws.onmessage = async (event) => {
+		ws.onmessage = async (event) => {
 			try {
-				const msg = JSON.parse(event.data) as ServerToClientMessage;
+				const parsed: unknown = JSON.parse(event.data);
+				if (!isServerToClientMessage(parsed)) return;
+				const msg = parsed;
 				if (msg.type === "tool_call") {
 					await this.handleToolCall(msg);
-				} else if (msg.type === "agent_connected") {
-					await this.getOrWaitApproval();
 				}
 			} catch {}
 		};
 
-		this.ws.onclose = () => {
-			console.log("[Aperture] Disconnected. Retrying in 3s...");
-			this.updateBadge("disconnected");
+		ws.onclose = () => {
+			if (this.ws !== ws) return;
+			this.ws = null;
+			this.removeBadge();
 			this.stopScreenCapture();
-			setTimeout(() => this.connect(), 3000);
+			this.reconnectTimer = setTimeout(() => {
+				this.reconnectTimer = null;
+				this.connect();
+			}, 3000);
 		};
 	}
 
 	disconnect() {
+		if (this.reconnectTimer) {
+			clearTimeout(this.reconnectTimer);
+			this.reconnectTimer = null;
+		}
 		if (this.ws) {
 			this.ws.onclose = null;
 			this.ws.close();
 			this.ws = null;
 		}
 		this.stopScreenCapture();
+		this.removeBadge();
+	}
+
+	private removeBadge() {
 		if (this.badgeElement) {
 			this.badgeElement.remove();
 			this.badgeElement = null;
@@ -251,18 +283,17 @@ export class ApertureClient {
 		}
 	}
 
-	private updateBadge(status: "disconnected" | "connecting" | "connected") {
+	private updateBadge() {
 		if (typeof document === "undefined") return;
-		if (this.isBadgeHidden()) {
-			if (this.badgeElement) {
-				this.badgeElement.remove();
-				this.badgeElement = null;
-			}
+		if (this.ws?.readyState !== WebSocket.OPEN || this.isBadgeHidden()) {
+			this.removeBadge();
 			return;
 		}
 		if (!this.badgeElement) {
 			this.badgeElement = document.createElement("div");
 			this.badgeElement.id = "aperture-badge";
+			this.badgeElement.dataset.position =
+				this.config.badgePosition ?? "bottom-right";
 			this.badgeElement.title = "Manage Aperture session (Ctrl+Shift+A)";
 
 			const dot = document.createElement("span");
@@ -277,6 +308,11 @@ export class ApertureClient {
 
 		const dot = this.badgeElement.querySelector(".dot");
 		if (dot) {
+			const status = this.approved
+				? "approved"
+				: this.denied
+					? "denied"
+					: "pending";
 			dot.className = `dot ${status}`;
 		}
 	}
@@ -308,7 +344,7 @@ export class ApertureClient {
 			}
 		}
 
-		const builtInHandler = TOOL_HANDLERS[msg.tool];
+		const builtInHandler = getToolHandler(msg.tool);
 		const customHandler = this.config.customTools?.[msg.tool]?.handler;
 		const handler = builtInHandler || customHandler;
 
@@ -353,6 +389,7 @@ export class ApertureClient {
 				approved: this.approved,
 				capabilities: this.capabilities,
 			});
+			this.updateBadge();
 		})();
 
 		this.approvalPendingPromise.finally(() => {
@@ -372,14 +409,15 @@ export class ApertureClient {
 			const result = await this.config.onApprovalRequest(agentName);
 			return { ...result, dismissed: false };
 		}
-		return showApprovalDialog(agentName, (state: any) => {
-			if (state.stream !== undefined) {
-				this.screenCaptureStream = state.stream;
-			}
-		});
+		return showApprovalDialog(agentName);
 	}
 
-	async captureScreenshotFromStream(): Promise<string> {
+	async captureScreenshotFromStream(selector?: string): Promise<string> {
+		const cropElement = selector ? document.querySelector(selector) : undefined;
+		if (selector && !cropElement) {
+			throw new Error(`Element not found matching selector: ${selector}`);
+		}
+		const cropRect = cropElement?.getBoundingClientRect();
 		if (!this.screenCaptureStream?.active) {
 			if (!this.approved || !this.capabilities.includes("screenshot")) {
 				throw new Error(
@@ -420,14 +458,45 @@ export class ApertureClient {
 			}
 		});
 
+		const videoWidth = video.videoWidth || 800;
+		const videoHeight = video.videoHeight || 600;
+		const viewportWidth = window.innerWidth || videoWidth;
+		const viewportHeight = window.innerHeight || videoHeight;
+		const source = cropRect
+			? {
+					left: Math.max(0, cropRect.left),
+					top: Math.max(0, cropRect.top),
+					right: Math.min(viewportWidth, cropRect.right),
+					bottom: Math.min(viewportHeight, cropRect.bottom),
+				}
+			: { left: 0, top: 0, right: viewportWidth, bottom: viewportHeight };
+		if (source.right <= source.left || source.bottom <= source.top) {
+			throw new Error(`Element is outside the viewport: ${selector}`);
+		}
+		const scaleX = videoWidth / viewportWidth;
+		const scaleY = videoHeight / viewportHeight;
+		const sourceX = source.left * scaleX;
+		const sourceY = source.top * scaleY;
+		const sourceWidth = (source.right - source.left) * scaleX;
+		const sourceHeight = (source.bottom - source.top) * scaleY;
 		const canvas = document.createElement("canvas");
-		canvas.width = video.videoWidth || 800;
-		canvas.height = video.videoHeight || 600;
+		canvas.width = Math.max(1, Math.round(sourceWidth));
+		canvas.height = Math.max(1, Math.round(sourceHeight));
 		const ctx = canvas.getContext("2d");
 		if (!ctx) {
 			throw new Error("Could not get 2D context from canvas");
 		}
-		ctx.drawImage(video, 0, 0);
+		ctx.drawImage(
+			video,
+			sourceX,
+			sourceY,
+			sourceWidth,
+			sourceHeight,
+			0,
+			0,
+			canvas.width,
+			canvas.height,
+		);
 		const dataUrl = canvas.toDataURL("image/png");
 
 		video.srcObject = null;
@@ -450,7 +519,15 @@ export class ApertureClient {
 	}
 
 	private async requestScreenCapture(): Promise<MediaStream | null> {
-		return requestDisplayMedia();
+		const result = await requestDisplayMedia();
+		if (result.stream) return result.stream;
+
+		if (result.needsGesture) {
+			return await showScreenshotPermissionDialog();
+		}
+
+		console.warn("[Aperture] Screen capture failed or denied:", result.error);
+		return null;
 	}
 
 	private openStatusDialog() {
@@ -465,11 +542,7 @@ export class ApertureClient {
 			revokeApproval: () => this.revokeApproval(),
 			onApprovalStateChange: (state) => {
 				this.approved = state.approved;
-				if (state.approved) {
-					this.denied = false;
-				} else {
-					this.denied = true;
-				}
+				this.denied = state.denied ?? !state.approved;
 				this.capabilities = state.capabilities;
 				if (state.stream !== undefined) {
 					if (state.stream === null) {
@@ -484,6 +557,7 @@ export class ApertureClient {
 					approved: this.approved,
 					capabilities: this.capabilities,
 				});
+				this.updateBadge();
 			},
 		});
 	}
@@ -493,6 +567,7 @@ export function initAperture(options?: {
 	port?: number;
 	serverUrl?: string;
 	customTools?: Record<string, CustomToolDefinition>;
+	badgePosition?: BadgePosition;
 }) {
 	if (typeof window === "undefined") return;
 
@@ -515,6 +590,7 @@ export function initAperture(options?: {
 	const client = new ApertureClient({
 		serverUrl,
 		customTools: options?.customTools,
+		badgePosition: options?.badgePosition,
 	});
 	client.connect();
 	window.__apertureInstance__ = client;
@@ -532,8 +608,7 @@ if (typeof window !== "undefined") {
 		setTimeout(() => {
 			if (!window.__apertureInstance__) {
 				const port = window.__APERTURE_PORT__ || 3456;
-				const serverUrl =
-					window.__APERTURE_URL__ || `ws://localhost:${port}`;
+				const serverUrl = window.__APERTURE_URL__ || `ws://localhost:${port}`;
 				console.log(
 					"[Aperture] No manual initialization detected. Auto-connecting...",
 				);

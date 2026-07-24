@@ -28,18 +28,14 @@ export function getNetworkBuffer(): NetworkEntry[] {
 export function patchConsole() {
 	const levels = ["log", "warn", "error", "info", "debug"] as const;
 	for (const level of levels) {
-		const orig = (console as unknown as Record<string, unknown>)[level] as (
-			...args: unknown[]
-		) => void;
-		(console as unknown as Record<string, unknown>)[level] = (
-			...args: unknown[]
-		) => {
+		const original = console[level];
+		console[level] = (...args: Parameters<typeof original>) => {
 			const message = args
 				.map((a) => (typeof a === "string" ? a : JSON.stringify(a)))
 				.join(" ");
 			consoleBuffer.push({ level, message, timestamp: Date.now() });
 			if (consoleBuffer.length > 500) consoleBuffer.shift();
-			orig(...args);
+			original(...args);
 		};
 	}
 }

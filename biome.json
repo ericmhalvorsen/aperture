@@ -1,5 +1,5 @@
 {
-	"$schema": "https://biomejs.dev/schemas/2.4.16/schema.json",
+	"$schema": "https://biomejs.dev/schemas/2.5.5/schema.json",
 	"vcs": {
 		"enabled": true,
 		"clientKind": "git",
@@ -21,10 +21,7 @@
 	"linter": {
 		"enabled": true,
 		"rules": {
-			"recommended": true,
-			"suspicious": {
-				"noExplicitAny": "off"
-			}
+			"preset": "recommended"
 		}
 	},
 	"javascript": {
@@ -46,7 +43,6 @@
 			"linter": {
 				"rules": {
 					"suspicious": {
-						"noExplicitAny": "off",
 						"noDocumentCookie": "off"
 					},
 					"complexity": {

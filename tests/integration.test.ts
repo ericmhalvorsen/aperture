@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterAll, beforeAll, expect, test, vi } from "vitest";
+import { afterAll, beforeAll, expect, test } from "vitest";
 import { WebSocket } from "ws";
 import type { ApertureClient } from "../src/client.js";
 import { ApertureServer } from "../src/server.js";
@@ -8,13 +8,77 @@ let ApertureClientClass: typeof ApertureClient;
 let server: ApertureServer;
 let client: ApertureClient;
 const port = 4568;
+let originalWebSocket: typeof globalThis.WebSocket;
+let originalFetch: typeof window.fetch;
+
+type TextContent = { type: string; text: string };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+function isTextContent(value: unknown): value is TextContent {
+	return (
+		isRecord(value) &&
+		typeof value.type === "string" &&
+		typeof value.text === "string"
+	);
+}
+
+function isToolResult(value: unknown): value is { content: TextContent[] } {
+	return (
+		isRecord(value) &&
+		Array.isArray(value.content) &&
+		value.content.every(isTextContent)
+	);
+}
+
+function isToolsList(
+	value: unknown,
+): value is { tools: Array<{ name: string; description: string }> } {
+	return (
+		isRecord(value) &&
+		Array.isArray(value.tools) &&
+		value.tools.every(
+			(tool) =>
+				isRecord(tool) &&
+				typeof tool.name === "string" &&
+				typeof tool.description === "string",
+		)
+	);
+}
+
+function isPageInfo(value: unknown): value is {
+	url: string;
+	title: string;
+	logs: Array<{ level: string; message: string; timestamp: number }>;
+} {
+	return (
+		isRecord(value) &&
+		typeof value.url === "string" &&
+		typeof value.title === "string" &&
+		Array.isArray(value.logs) &&
+		value.logs.every(
+			(log) =>
+				isRecord(log) &&
+				typeof log.level === "string" &&
+				typeof log.message === "string" &&
+				typeof log.timestamp === "number",
+		)
+	);
+}
 
 beforeAll(async () => {
 	// JSDOM provides window, document, and localStorage natively.
 	// We only need to mock specific missing APIs like fetch and WebSocket.
-	global.window.fetch = vi.fn() as unknown as typeof fetch;
-	global.window.WebSocket = WebSocket as unknown as typeof window.WebSocket;
-	global.WebSocket = WebSocket as unknown as typeof window.WebSocket;
+	originalFetch = window.fetch;
+	window.fetch = async () => new Response();
+	originalWebSocket = globalThis.WebSocket;
+	Object.defineProperty(globalThis, "WebSocket", {
+		configurable: true,
+		value: WebSocket,
+		writable: true,
+	});
 
 	// Dynamically import client now that mock globals are active
 	const clientModule = await import("../src/client.js");
@@ -40,46 +104,44 @@ beforeAll(async () => {
 		},
 	});
 
-	(client as { connect: () => void }).connect();
+	client.connect();
 
 	// Wait for client to register with server
 	await new Promise((resolve) => setTimeout(resolve, 200));
 });
 
-afterAll(() => {
+afterAll(async () => {
 	if (client) {
-		(client as { disconnect: () => void }).disconnect();
+		client.disconnect();
 	}
 	if (server) {
-		// @ts-expect-error accessing private for cleanup
-		server.wss.close();
-		// @ts-expect-error accessing private for cleanup
-		if (server.wss.options.server) {
-			// @ts-expect-error accessing private for cleanup
-			server.wss.options.server.close();
-		}
+		await server.close();
 	}
+	window.fetch = originalFetch;
+	Object.defineProperty(globalThis, "WebSocket", {
+		configurable: true,
+		value: originalWebSocket,
+		writable: true,
+	});
 });
 
-async function sendMcpRequest<T = unknown>(
+async function sendMcpRequest(
 	ws: WebSocket,
 	method: string,
 	params?: Record<string, unknown>,
 	id = crypto.randomUUID(),
-): Promise<T> {
+): Promise<unknown> {
 	return new Promise((resolve, reject) => {
 		const timeout = setTimeout(() => reject(new Error("Timeout")), 5000);
 		const handler = (data: import("ws").RawData) => {
-			const msg = JSON.parse(data.toString()) as {
-				id: string;
-				result?: unknown;
-				error?: { message: string };
-			};
-			if (msg.id === id) {
-				clearTimeout(timeout);
-				ws.off("message", handler);
-				if (msg.error) reject(new Error(msg.error.message));
-				else resolve(msg.result as T);
+			const parsed: unknown = JSON.parse(data.toString());
+			if (!isRecord(parsed) || parsed.id !== id) return;
+			clearTimeout(timeout);
+			ws.off("message", handler);
+			if (isRecord(parsed.error) && typeof parsed.error.message === "string") {
+				reject(new Error(parsed.error.message));
+			} else if ("result" in parsed) {
+				resolve(parsed.result);
 			}
 		};
 		ws.on("message", handler);
@@ -103,25 +165,18 @@ test("routes tool calls from MCP to client and returns results", async () => {
 		clientInfo: { name: "test-client", version: "1.0.0" },
 	});
 
-	const result = await sendMcpRequest<{
-		content: Array<{ type: string; text: string }>;
-	}>(mcp, "tools/call", {
+	const result: unknown = await sendMcpRequest(mcp, "tools/call", {
 		name: "browser_page_info",
 		arguments: { logLimit: 10, logLevel: "all" },
 	});
+	if (!isToolResult(result)) throw new Error("Unexpected tool response");
 
 	expect(result.content).toBeDefined();
 	expect(result.content[0].type).toBe("text");
 
-	const pageInfo = JSON.parse(result.content[0].text) as {
-		url: string;
-		title: string;
-		logs: Array<{
-			level: string;
-			message: string;
-			timestamp: number;
-		}>;
-	};
+	const parsedPageInfo: unknown = JSON.parse(result.content[0].text);
+	if (!isPageInfo(parsedPageInfo)) throw new Error("Unexpected page info");
+	const pageInfo = parsedPageInfo;
 	const logs = pageInfo.logs;
 	expect(Array.isArray(logs)).toBe(true);
 
@@ -147,9 +202,8 @@ test("exposes custom tools in tools/list and routes custom tool calls", async ()
 		clientInfo: { name: "test-client", version: "1.0.0" },
 	});
 
-	const listResult = await sendMcpRequest<{
-		tools: Array<{ name: string; description: string }>;
-	}>(mcp, "tools/list");
+	const listResult: unknown = await sendMcpRequest(mcp, "tools/list");
+	if (!isToolsList(listResult)) throw new Error("Unexpected tools response");
 
 	expect(listResult.tools).toBeDefined();
 	const customTool = listResult.tools.find(
@@ -158,12 +212,11 @@ test("exposes custom tools in tools/list and routes custom tool calls", async ()
 	expect(customTool).toBeDefined();
 	expect(customTool?.description).toBe("Gets fake redux state");
 
-	const callResult = await sendMcpRequest<{
-		content: Array<{ type: string; text: string }>;
-	}>(mcp, "tools/call", {
+	const callResult: unknown = await sendMcpRequest(mcp, "tools/call", {
 		name: "custom_redux_state",
 		arguments: {},
 	});
+	if (!isToolResult(callResult)) throw new Error("Unexpected tool response");
 
 	expect(callResult.content).toBeDefined();
 	expect(JSON.parse(callResult.content[0].text)).toEqual({ state: "faked" });

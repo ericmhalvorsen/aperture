@@ -198,7 +198,8 @@ Add to `~/.claude/claude_desktop_config.json`:
 {
   "mcpServers": {
     "aperture": {
-      "url": "http://localhost:3456/mcp"
+      "command": "npx",
+      "args": ["-y", "@ericmhalvorsen/aperture", "stdin"]
     }
   }
 }
@@ -211,7 +212,8 @@ Add to `opencode.json`:
 {
   "mcpServers": {
     "aperture": {
-      "url": "http://localhost:3456/mcp"
+      "command": "npx",
+      "args": ["-y", "@ericmhalvorsen/aperture", "stdin"]
     }
   }
 }
@@ -224,7 +226,8 @@ Add to Cursor settings → MCP:
 {
   "mcpServers": {
     "aperture": {
-      "url": "http://localhost:3456/mcp"
+      "command": "npx",
+      "args": ["-y", "@ericmhalvorsen/aperture", "stdin"]
     }
   }
 }

@@ -41,7 +41,7 @@ describe("CLI wrapper", () => {
 
 		expect(code).toBe(0);
 		expect(output).toContain("Aperture MCP Server initialized");
-		expect(output).toContain("ws://localhost:5002/mcp");
+		expect(output).toMatch(/ws:\/\/localhost:5\d{3}\/mcp/);
 		expect(output).toContain("aperture-cli-test");
 		expect(errOutput).toBe(""); // should be empty
 	});
@@ -66,7 +66,7 @@ describe("CLI wrapper", () => {
 		expect(stdout).not.toContain("Aperture MCP Server initialized");
 		// Check that stderr contains the initialization logs
 		expect(stderr).toContain("Aperture MCP Server initialized (stdio mode)");
-		expect(stderr).toContain("ws://localhost:5003/mcp");
+		expect(stderr).toMatch(/ws:\/\/localhost:5\d{3}\/mcp/);
 
 		// Clean up
 		child.kill("SIGINT");

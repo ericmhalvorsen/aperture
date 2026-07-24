@@ -1,16 +1,22 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { CustomToolDefinition } from "./client.js";
+import type { BadgePosition, CustomToolDefinition } from "./client.js";
 import { initAperture } from "./client.js";
 
 interface ApertureProps {
 	port?: number;
 	serverUrl?: string;
 	customTools?: Record<string, CustomToolDefinition>;
+	badgePosition?: BadgePosition;
 }
 
-export function Aperture({ port, serverUrl, customTools }: ApertureProps) {
+export function Aperture({
+	port,
+	serverUrl,
+	customTools,
+	badgePosition,
+}: ApertureProps) {
 	const customToolsRef = useRef(customTools);
 	customToolsRef.current = customTools;
 
@@ -19,6 +25,7 @@ export function Aperture({ port, serverUrl, customTools }: ApertureProps) {
 			port,
 			serverUrl,
 			customTools: customToolsRef.current,
+			badgePosition,
 		});
 
 		return () => {
@@ -26,7 +33,7 @@ export function Aperture({ port, serverUrl, customTools }: ApertureProps) {
 				client.disconnect();
 			}
 		};
-	}, [port, serverUrl]);
+	}, [port, serverUrl, badgePosition]);
 
 	return null;
 }

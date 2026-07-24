@@ -4,10 +4,10 @@
 	"description": "Browser-to-agent bridge for AI agents. Auto-connects your dev browser to any MCP-capable agent.",
 	"license": "MIT",
 	"author": "Eric M. Halvorsen",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/ericmhalvorsen/aperture.git"
-  },
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/ericmhalvorsen/aperture.git"
+	},
 	"homepage": "https://github.com/ericmhalvorsen/aperture#readme",
 	"bugs": {
 		"url": "https://github.com/ericmhalvorsen/aperture/issues"
@@ -23,6 +23,7 @@
 		"cursor",
 		"opencode"
 	],
+	"packageManager": "pnpm@10.33.2",
 	"engines": {
 		"node": ">=18"
 	},
@@ -49,14 +50,6 @@
 		"./register": {
 			"types": "./dist/register.d.ts",
 			"default": "./dist/register.js"
-		},
-		"./next": {
-			"types": "./dist/frameworks/next.d.ts",
-			"default": "./dist/frameworks/next.js"
-		},
-		"./vite": {
-			"types": "./dist/frameworks/vite.d.ts",
-			"default": "./dist/frameworks/vite.js"
 		}
 	},
 	"bin": {
@@ -85,30 +78,34 @@
 		"@modelcontextprotocol/sdk": "^1.29.0",
 		"lit-html": "^3.3.3",
 		"picocolors": "^1.1.1",
-		"ws": "^8"
+		"ws": "^8.21.1"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.4.16",
-		"@changesets/cli": "^2.31.0",
-		"@playwright/test": "^1.60.0",
-		"@types/node": "^20",
-		"@types/react": "^19",
-		"@types/ws": "^8",
-		"@vitest/coverage-v8": "^4.1.7",
+		"@biomejs/biome": "^2.5.5",
+		"@changesets/cli": "^2.31.1",
+		"@playwright/test": "^1.61.1",
+		"@types/node": "^26.1.1",
+		"@types/react": "^19.2.17",
+		"@types/ws": "^8.18.1",
+		"@vitest/coverage-v8": "^4.1.10",
 		"jsdom": "^29.1.1",
-		"knip": "^6.14.2",
-		"publint": "^0.3.21",
+		"knip": "^6.29.0",
+		"publint": "^0.3.22",
 		"tsup": "^8.5.1",
-		"typescript": "^5",
-		"vitest": "^4.1.7"
+		"typescript": "^7.0.2",
+		"vitest": "^4.1.10"
 	},
 	"peerDependencies": {
 		"react": ">=18",
 		"react-dom": ">=18"
 	},
 	"peerDependenciesMeta": {
-		"react": { "optional": true },
-		"react-dom": { "optional": true }
+		"react": {
+			"optional": true
+		},
+		"react-dom": {
+			"optional": true
+		}
 	},
 	"files": [
 		"dist",
@@ -117,7 +114,10 @@
 	],
 	"pnpm": {
 		"overrides": {
-			"postcss": "^8.5.10"
+			"postcss": "^8.5.18",
+			"sharp": "^0.35.0",
+			"fast-uri": "^3.1.4",
+			"@hono/node-server": "^2.0.5"
 		}
 	}
 }
