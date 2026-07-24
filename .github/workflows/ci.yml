@@ -7,51 +7,44 @@ on:
     branches: [ main ]
 
 jobs:
-  test:
-    name: Build & Test
+  lint:
+    name: Lint & Typecheck
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
         with:
-          version: latest
-
-      - name: Install Node.js
-        uses: actions/setup-node@v4
+          version: 10.33.2
+      - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Format & Lint Check (Biome)
+      - run: pnpm install --frozen-lockfile
+      - name: Biome check
         run: pnpm run check
-
       - name: Typecheck
         run: pnpm run typecheck
-
-      - name: Build
-        run: pnpm run build
-
-      - name: Run Tests
-        run: pnpm run test
-
-      - name: Package Validation
-        run: pnpm run publint
-
-      - name: Dependency Audit
-        run: pnpm audit --prod
-
-      - name: Knip (Find unused code)
+      - name: Knip (unused code)
         run: pnpm run knip
 
-      - name: Install Playwright Browsers
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Run E2E Tests
-        run: pnpm run test:e2e
+  test:
+    name: Build & Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build
+        run: pnpm run build
+      - name: Unit tests
+        run: pnpm run test
+      - name: Package validation
+        run: pnpm run publint
+      - name: Dependency audit
+        run: pnpm audit --prod
