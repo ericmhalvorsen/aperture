@@ -1,8 +1,38 @@
-# @ericmhalvorsen/aperture
+<div align="center">
 
-> Let Agent see browser. Agent build better stuff. Perchance
+# 📷 Aperture
 
-No extensions. No CORS hacks. Auto-connect your local dev browser to Claude Code, Cursor, OpenCode, or any other MCP-capable agent.
+> *Let Agent see browser. Agent build better stuff. Perchance.*
+
+[![npm version](https://img.shields.io/npm/v/@ericmhalvorsen/aperture?style=for-the-badge&color=6366f1&labelColor=0f172a)](https://www.npmjs.com/package/@ericmhalvorsen/aperture)
+[![License](https://img.shields.io/npm/l/@ericmhalvorsen/aperture?style=for-the-badge&color=8b5cf6&labelColor=0f172a)](./LICENSE)
+[![MCP Protocol](https://img.shields.io/badge/MCP-Standard-10b981?style=for-the-badge&logoColor=white&labelColor=0f172a)](https://modelcontextprotocol.io)
+[![TypeScript](https://img.shields.io/badge/TypeScript-Strict-3178C6?style=for-the-badge&logo=typescript&logoColor=white&labelColor=0f172a)](https://www.typescriptlang.org/)
+
+**A zero-extension dev sidecar & MCP bridge connecting your local web app directly to AI coding agents.**
+
+[Features](#key-capabilities) • [Quickstart](#5-minute-quickstart) • [How It Works](./docs/how-it-works.md) • [Capabilities](./docs/capabilities.md) • [Security](./docs/security.md)
+
+</div>
+
+---
+
+**Aperture** gives MCP-capable AI coding agents (Claude Code, Cursor, OpenCode, Windsurf) a live, interactive window into your active development browser sessions.
+
+Instead of manually copy-pasting stack traces, taking desktop screenshots, or guessing computed styling, Aperture lets your agent inspect DOM elements, stream console logs and network traffic, capture viewports, and test interactions—all with zero browser extensions, zero CORS hacks, and explicit in-browser user consent.
+
+### Key Capabilities
+
+| Feature | Description |
+| :--- | :--- |
+| 👁️ **DOM & Visual Context** | Inspect DOM elements, query selectors, styles, and capture viewport screenshots directly from the page. |
+| 🪵 **Console & Network Audit** | Stream live browser console logs (`log`, `warn`, `error`) and fetch/XHR network request histories straight to your AI agent. |
+| ⚡ **Zero Extension Setup** | Mount `<Aperture />` in React/Next.js or import the register module in Vite/vanilla JS. Works in standard Chrome, Firefox, Safari, and Zen. |
+| 🔒 **Explicit Consent & Safety** | Runs strictly on `127.0.0.1`. The initial tool request opens an in-browser modal requiring explicit user consent and opt-in for sensitive capabilities. |
+| 🔀 **Multi-Tab Sessions** | Connect multiple browser tabs simultaneously and let your agent query, target, and switch tabs on the fly. |
+
+---
+
 
 ## 5-Minute Quickstart
 

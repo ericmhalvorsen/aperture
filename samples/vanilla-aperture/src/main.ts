@@ -1,9 +1,13 @@
 import './style.css'
-import '@ericmhalvorsen/aperture/register'
+import { initAperture } from '@ericmhalvorsen/aperture/client'
 import typescriptLogo from './assets/typescript.svg'
 import viteLogo from './assets/vite.svg'
 import heroImg from './assets/hero.png'
 import { setupCounter } from './counter.ts'
+
+initAperture({
+  port: Number(import.meta.env.VITE_APERTURE_PORT) || 3456,
+})
 
 const app = document.querySelector<HTMLDivElement>('#app')
 if (!app) throw new Error('Missing #app root')

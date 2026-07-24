@@ -5,12 +5,14 @@ import heroImg from './assets/hero.png'
 import './App.css'
 import { Aperture } from '@ericmhalvorsen/aperture/react'
 
+const aperturePort = Number(import.meta.env.VITE_APERTURE_PORT) || 3456
+
 function App() {
   const [count, setCount] = useState(0)
 
   return (
     <>
-      <Aperture />
+      <Aperture port={aperturePort} badgePosition="top-left" />
       <section id="center">
         <div className="hero">
           <img src={heroImg} className="base" width="170" height="179" alt="" />

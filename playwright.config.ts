@@ -37,14 +37,14 @@ export default defineConfig({
 			command:
 				"pnpm exec aperture -p 3457 -- pnpm --filter vanilla-aperture run dev",
 			port: 5173,
-			env: { APERTURE_PORT: "3457" },
+			env: { APERTURE_PORT: "3457", VITE_APERTURE_PORT: "3457" },
 			reuseExistingServer: !process.env.CI,
 		},
 		{
 			command:
 				"pnpm exec aperture -p 3458 -- pnpm --filter vite-aperture run dev",
 			port: 5174,
-			env: { APERTURE_PORT: "3458" },
+			env: { APERTURE_PORT: "3458", VITE_APERTURE_PORT: "3458" },
 			reuseExistingServer: !process.env.CI,
 		},
 	],

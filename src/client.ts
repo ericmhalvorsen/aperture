@@ -5,6 +5,7 @@ import {
 	injectStyles,
 	requestDisplayMedia,
 	showApprovalDialog,
+	showScreenshotPermissionDialog,
 	showStatusDialog,
 } from "./client/ui.js";
 import type {
@@ -52,6 +53,7 @@ interface BridgeConfig {
 
 export class ApertureClient {
 	private ws: WebSocket | null = null;
+	private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	private config: BridgeConfig;
 	private approved = false;
 	private denied = false;
@@ -108,11 +110,9 @@ export class ApertureClient {
 
 	private showBadge() {
 		storage.remove("aperture_badge_hidden_until");
-		if (this.ws) {
-			const status =
-				this.ws.readyState === WebSocket.OPEN ? "connected" : "connecting";
-			this.updateBadge(status);
-		}
+		const status =
+			this.ws?.readyState === WebSocket.OPEN ? "connected" : "connecting";
+		this.updateBadge(status);
 	}
 
 	private loadCachedApproval() {
@@ -122,14 +122,21 @@ export class ApertureClient {
 		const defaultTtlMs = 60 * 60 * 1000;
 		const ttlMs = storedTtl ? Number(storedTtl) : defaultTtlMs;
 
-		const isStale = timestamp ? Date.now() - Number(timestamp) > ttlMs : true;
+		const isApproved = approved === "true";
+		const isStale =
+			isApproved && (timestamp ? Date.now() - Number(timestamp) > ttlMs : true);
 
-		if (approved === "true" && !isStale) {
+		if (isApproved && !isStale) {
 			this.approved = true;
 			this.denied = false;
-			const storedCapabilities: unknown = JSON.parse(
-				storage.get("aperture_capabilities") || "[]",
-			);
+			let storedCapabilities: unknown;
+			try {
+				storedCapabilities = JSON.parse(
+					storage.get("aperture_capabilities") || "[]",
+				);
+			} catch {
+				storedCapabilities = [];
+			}
 			if (
 				Array.isArray(storedCapabilities) &&
 				storedCapabilities.every((value) => typeof value === "string")
@@ -180,13 +187,18 @@ export class ApertureClient {
 	}
 
 	connect() {
+		if (this.reconnectTimer) {
+			clearTimeout(this.reconnectTimer);
+			this.reconnectTimer = null;
+		}
 		const url = new URL("/mcp", this.config.serverUrl);
 		url.searchParams.set("type", "browser");
 
 		this.updateBadge("connecting");
-		this.ws = new WebSocket(url.toString());
+		const ws = new WebSocket(url.toString());
+		this.ws = ws;
 
-		this.ws.onopen = () => {
+		ws.onopen = () => {
 			const customToolsPayload: ToolMetadata[] = this.config.customTools
 				? Object.entries(this.config.customTools).map(([name, def]) => ({
 						name,
@@ -221,28 +233,34 @@ export class ApertureClient {
 			}
 		};
 
-		this.ws.onmessage = async (event) => {
+		ws.onmessage = async (event) => {
 			try {
 				const parsed: unknown = JSON.parse(event.data);
 				if (!isServerToClientMessage(parsed)) return;
 				const msg = parsed;
 				if (msg.type === "tool_call") {
 					await this.handleToolCall(msg);
-				} else if (msg.type === "agent_connected") {
-					await this.getOrWaitApproval();
 				}
 			} catch {}
 		};
 
-		this.ws.onclose = () => {
-			console.log("[Aperture] Disconnected. Retrying in 3s...");
+		ws.onclose = () => {
+			if (this.ws !== ws) return;
+			this.ws = null;
 			this.updateBadge("disconnected");
 			this.stopScreenCapture();
-			setTimeout(() => this.connect(), 3000);
+			this.reconnectTimer = setTimeout(() => {
+				this.reconnectTimer = null;
+				this.connect();
+			}, 3000);
 		};
 	}
 
 	disconnect() {
+		if (this.reconnectTimer) {
+			clearTimeout(this.reconnectTimer);
+			this.reconnectTimer = null;
+		}
 		if (this.ws) {
 			this.ws.onclose = null;
 			this.ws.close();
@@ -390,11 +408,7 @@ export class ApertureClient {
 			const result = await this.config.onApprovalRequest(agentName);
 			return { ...result, dismissed: false };
 		}
-		return showApprovalDialog(agentName, (state) => {
-			if (state.stream !== undefined) {
-				this.screenCaptureStream = state.stream;
-			}
-		});
+		return showApprovalDialog(agentName);
 	}
 
 	async captureScreenshotFromStream(selector?: string): Promise<string> {
@@ -504,7 +518,15 @@ export class ApertureClient {
 	}
 
 	private async requestScreenCapture(): Promise<MediaStream | null> {
-		return requestDisplayMedia();
+		const result = await requestDisplayMedia();
+		if (result.stream) return result.stream;
+
+		if (result.needsGesture) {
+			return await showScreenshotPermissionDialog();
+		}
+
+		console.warn("[Aperture] Screen capture failed or denied:", result.error);
+		return null;
 	}
 
 	private openStatusDialog() {
@@ -519,11 +541,7 @@ export class ApertureClient {
 			revokeApproval: () => this.revokeApproval(),
 			onApprovalStateChange: (state) => {
 				this.approved = state.approved;
-				if (state.approved) {
-					this.denied = false;
-				} else {
-					this.denied = true;
-				}
+				this.denied = state.denied ?? !state.approved;
 				this.capabilities = state.capabilities;
 				if (state.stream !== undefined) {
 					if (state.stream === null) {

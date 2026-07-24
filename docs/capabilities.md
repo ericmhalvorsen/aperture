@@ -15,7 +15,7 @@
 
 ## Screenshot Tool
 
-`browser_screenshot` requires a live screen capture stream from the browser. The user must enable screenshots in the initial approval dialog. If the stream becomes inactive (e.g. after a page refresh), the browser's native screen share picker will appear to re-acquire the stream — no additional Aperture modal is shown.
+`browser_screenshot` requires a live screen capture stream from the browser. The user must enable screenshots in the initial approval dialog. The browser's native screen share picker appears when the first screenshot is requested. In browsers that require a transient user gesture, Aperture shows a screenshot-specific permission dialog first. If the stream becomes inactive (e.g. after a page refresh), the browser's native screen share picker will appear to re-acquire the stream.
 
 ## Multi-Session Support
 

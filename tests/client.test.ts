@@ -182,7 +182,8 @@ describe("ApertureClient", () => {
 	test("persists denial state", async () => {
 		const approvalRequest = vi
 			.fn<() => Promise<{ approved: boolean; capabilities: string[] }>>()
-			.mockResolvedValue({ approved: false, capabilities: [] });
+			.mockResolvedValueOnce({ approved: false, capabilities: [] })
+			.mockResolvedValueOnce({ approved: true, capabilities: [] });
 		const client = new ApertureClient({
 			serverUrl: "ws://localhost:3456",
 			onApprovalRequest: approvalRequest,
@@ -195,9 +196,16 @@ describe("ApertureClient", () => {
 		await sendToolCall(socket, "browser_console_logs", { limit: 10 });
 		expect(approvalRequest).toHaveBeenCalledOnce();
 
+		document
+			.getElementById("aperture-badge")
+			?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		document
+			.getElementById("aperture-status-btn-revoke")
+			?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
 		await sendToolCall(socket, "browser_console_logs", { limit: 10 });
 
-		expect(approvalRequest).toHaveBeenCalledOnce();
+		expect(approvalRequest).toHaveBeenCalledTimes(2);
 		client.disconnect();
 	});
 });

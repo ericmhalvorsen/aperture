@@ -128,8 +128,8 @@ export function injectStyles() {
     }
 
     #aperture-badge .dot.disconnected {
-      background-color: #ef4444;
-      box-shadow: 0 0 8px #ef4444;
+      background-color: #f59e0b;
+      box-shadow: 0 0 8px #f59e0b;
     }
 
     @keyframes aperture-pulse {
@@ -345,7 +345,18 @@ export function injectStyles() {
 
 import { html, render } from "lit-html";
 
+let activeDialog: {
+	cleanup: () => void;
+	dismiss: () => void;
+} | null = null;
+
+export function closeActiveDialog() {
+	activeDialog?.dismiss();
+}
+
 function createDialogOverlay(onDismiss?: () => void) {
+	closeActiveDialog();
+
 	const overlay = document.createElement("div");
 	overlay.id = "aperture-dialog-overlay";
 	document.body.appendChild(overlay);
@@ -356,20 +367,27 @@ function createDialogOverlay(onDismiss?: () => void) {
 			overlay.remove();
 		}, 300);
 		document.removeEventListener("keydown", escHandler);
+		if (activeDialog?.cleanup === cleanup) {
+			activeDialog = null;
+		}
 	};
+
+	const dismiss = () => {
+		cleanup();
+		onDismiss?.();
+	};
+	activeDialog = { cleanup, dismiss };
 
 	const escHandler = (e: KeyboardEvent) => {
 		if (e.key === "Escape") {
-			cleanup();
-			onDismiss?.();
+			dismiss();
 		}
 	};
 	document.addEventListener("keydown", escHandler);
 
 	const outsideClickHandler = (e: MouseEvent) => {
 		if (e.target === overlay) {
-			cleanup();
-			onDismiss?.();
+			dismiss();
 		}
 	};
 	overlay.addEventListener("click", outsideClickHandler);
@@ -383,29 +401,117 @@ function createDialogOverlay(onDismiss?: () => void) {
 	return { overlay, cleanup, activate };
 }
 
-export async function requestDisplayMedia(): Promise<MediaStream | null> {
+function getMediaErrorDetails(error: unknown) {
+	const details =
+		typeof error === "object" && error !== null
+			? (error as { name?: unknown; message?: unknown })
+			: {};
+	return {
+		name: typeof details.name === "string" ? details.name : "UnknownError",
+		message: typeof details.message === "string" ? details.message : "",
+	};
+}
+
+function isGestureError(error: unknown, startedAt: number): boolean {
+	const { name, message } = getMediaErrorDetails(error);
+	const normalizedMessage = message.toLowerCase();
+	return (
+		normalizedMessage.includes("gesture") ||
+		normalizedMessage.includes("activation") ||
+		(name === "NotAllowedError" && Date.now() - startedAt < 500)
+	);
+}
+
+async function requestDisplayMediaWithFallback(): Promise<MediaStream> {
 	try {
-		const options = {
+		return await navigator.mediaDevices.getDisplayMedia({
 			video: { displaySurface: "browser" },
 			audio: false,
-		} satisfies DisplayMediaStreamOptions;
-		return await navigator.mediaDevices.getDisplayMedia(options);
-	} catch (err) {
-		console.warn(
-			"[Aperture] Failed to acquire screen share stream for screenshots:",
-			err,
-		);
-		return null;
+		});
+	} catch (error: unknown) {
+		const { name } = getMediaErrorDetails(error);
+		if (name !== "TypeError" && name !== "OverconstrainedError") {
+			throw error;
+		}
+		return navigator.mediaDevices.getDisplayMedia({
+			video: true,
+			audio: false,
+		});
 	}
 }
 
-export function showApprovalDialog(
-	agentName: string,
-	_onApprovalStateChange: (state: {
-		stream?: MediaStream | null;
-		capabilities?: string[];
-	}) => void,
-): Promise<{
+export async function requestDisplayMedia(): Promise<{
+	stream: MediaStream | null;
+	needsGesture: boolean;
+	error?: unknown;
+}> {
+	const start = Date.now();
+
+	try {
+		const stream = await requestDisplayMediaWithFallback();
+		return { stream, needsGesture: false };
+	} catch (error: unknown) {
+		if (isGestureError(error, start)) {
+			return { stream: null, needsGesture: true, error };
+		}
+		console.warn(
+			"[Aperture] Failed to acquire screen share stream for screenshots:",
+			getMediaErrorDetails(error),
+		);
+		return { stream: null, needsGesture: false, error };
+	}
+}
+
+export function showScreenshotPermissionDialog(): Promise<MediaStream | null> {
+	return new Promise((resolve) => {
+		const { overlay, cleanup, activate } = createDialogOverlay(() =>
+			resolve(null),
+		);
+
+		const handleAllow = async () => {
+			try {
+				const stream = await requestDisplayMediaWithFallback();
+				cleanup();
+				resolve(stream);
+			} catch (err) {
+				const details = getMediaErrorDetails(err);
+				console.warn(
+					`[Aperture] Screen share prompt failed (${details.name}): ${details.message}`,
+				);
+				cleanup();
+				resolve(null);
+			}
+		};
+
+		const handleDeny = () => {
+			cleanup();
+			resolve(null);
+		};
+
+		const template = html`
+			<div id="aperture-dialog">
+				<div class="aperture-header">
+					<div class="aperture-icon">📸</div>
+					<div class="aperture-title-container">
+						<h3 class="aperture-title">Screenshot Requested</h3>
+						<p class="aperture-subtitle">The agent wants to view this tab</p>
+					</div>
+				</div>
+				<div class="aperture-body">
+					Your browser requires explicit permission to share the screen. Please click "Share Screen" below and select this tab so the agent can take a screenshot.
+				</div>
+				<div class="aperture-footer">
+					<button class="aperture-btn aperture-btn-deny" @click=${handleDeny}>Deny</button>
+					<button class="aperture-btn aperture-btn-allow" @click=${handleAllow}>Share Screen</button>
+				</div>
+			</div>
+		`;
+		render(template, overlay);
+		activate();
+	});
+}
+
+export function showApprovalDialog(agentName: string): Promise<{
 	approved: boolean;
 	capabilities: string[];
 	ttlMs?: number;
@@ -435,11 +541,10 @@ export function showApprovalDialog(
 			resolve({ approved: false, capabilities: [] });
 		};
 
-		const handleAllow = async () => {
+		const handleAllow = () => {
 			const ttlMs = remember24h ? 24 * 60 * 60 * 1000 : 60 * 60 * 1000;
 			const capabilities = ["console", "dom", "network", "storage"];
 			if (allowEval) capabilities.push("evaluate");
-
 			if (allowScreenshot) capabilities.push("screenshot");
 
 			cleanup();
@@ -553,12 +658,12 @@ export function showStatusDialog(options: {
 	revokeApproval: () => void;
 	onApprovalStateChange: (state: {
 		approved: boolean;
+		denied?: boolean;
 		capabilities: string[];
 		stream?: MediaStream | null;
 	}) => void;
 }) {
 	if (typeof document === "undefined") return;
-	if (document.getElementById("aperture-dialog-overlay")) return;
 
 	const { overlay, cleanup } = createDialogOverlay();
 
@@ -571,6 +676,7 @@ export function showStatusDialog(options: {
 		options.revokeApproval();
 		options.onApprovalStateChange({
 			approved: false,
+			denied: false,
 			capabilities: [],
 			stream: null,
 		});
@@ -645,12 +751,18 @@ export function showStatusDialog(options: {
 					${
 						options.approved
 							? html`
-									<button id="aperture-status-btn-revoke" class="aperture-btn aperture-btn-deny" @click=${handleRevoke}>Revoke</button>
+									<button id="aperture-status-btn-revoke" class="aperture-btn aperture-btn-deny" @click=${handleRevoke}>Revoke Access</button>
 									<button id="aperture-status-btn-close" class="aperture-btn aperture-btn-allow" @click=${handleClose}>Close</button>
 							  `
-							: html`
-									<div style="width: 100%; text-align: center; color: var(--ap-text-muted); font-size: 13px;">
-										Waiting for agent connection...
+							: options.denied
+								? html`
+									<button id="aperture-status-btn-revoke" class="aperture-btn aperture-btn-deny" @click=${handleRevoke}>Reset State</button>
+									<button id="aperture-status-btn-close" class="aperture-btn aperture-btn-allow" @click=${handleClose}>Close</button>
+							  `
+								: html`
+									<div style="width: 100%; display: flex; justify-content: space-between; align-items: center; font-size: 13px;">
+										<span style="color: var(--ap-text-muted);">Waiting for agent...</span>
+										<button id="aperture-status-btn-close" class="aperture-btn aperture-btn-allow" @click=${handleClose}>Close</button>
 									</div>
 							  `
 					}
