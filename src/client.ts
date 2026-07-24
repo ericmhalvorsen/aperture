@@ -102,17 +102,12 @@ export class ApertureClient {
 	private hideBadgeFor24h() {
 		const until = String(Date.now() + 24 * 60 * 60 * 1000);
 		storage.set("aperture_badge_hidden_until", until);
-		if (this.badgeElement) {
-			this.badgeElement.remove();
-			this.badgeElement = null;
-		}
+		this.removeBadge();
 	}
 
 	private showBadge() {
 		storage.remove("aperture_badge_hidden_until");
-		const status =
-			this.ws?.readyState === WebSocket.OPEN ? "connected" : "connecting";
-		this.updateBadge(status);
+		this.updateBadge();
 	}
 
 	private loadCachedApproval() {
@@ -194,7 +189,6 @@ export class ApertureClient {
 		const url = new URL("/mcp", this.config.serverUrl);
 		url.searchParams.set("type", "browser");
 
-		this.updateBadge("connecting");
 		const ws = new WebSocket(url.toString());
 		this.ws = ws;
 
@@ -215,7 +209,7 @@ export class ApertureClient {
 			});
 
 			console.log("[Aperture] Connected to server");
-			this.updateBadge("connected");
+			this.updateBadge();
 
 			if (this.approved) {
 				this.send({
@@ -247,7 +241,7 @@ export class ApertureClient {
 		ws.onclose = () => {
 			if (this.ws !== ws) return;
 			this.ws = null;
-			this.updateBadge("disconnected");
+			this.removeBadge();
 			this.stopScreenCapture();
 			this.reconnectTimer = setTimeout(() => {
 				this.reconnectTimer = null;
@@ -267,6 +261,10 @@ export class ApertureClient {
 			this.ws = null;
 		}
 		this.stopScreenCapture();
+		this.removeBadge();
+	}
+
+	private removeBadge() {
 		if (this.badgeElement) {
 			this.badgeElement.remove();
 			this.badgeElement = null;
@@ -285,13 +283,10 @@ export class ApertureClient {
 		}
 	}
 
-	private updateBadge(status: "disconnected" | "connecting" | "connected") {
+	private updateBadge() {
 		if (typeof document === "undefined") return;
-		if (this.isBadgeHidden()) {
-			if (this.badgeElement) {
-				this.badgeElement.remove();
-				this.badgeElement = null;
-			}
+		if (this.ws?.readyState !== WebSocket.OPEN || this.isBadgeHidden()) {
+			this.removeBadge();
 			return;
 		}
 		if (!this.badgeElement) {
@@ -313,6 +308,11 @@ export class ApertureClient {
 
 		const dot = this.badgeElement.querySelector(".dot");
 		if (dot) {
+			const status = this.approved
+				? "approved"
+				: this.denied
+					? "denied"
+					: "pending";
 			dot.className = `dot ${status}`;
 		}
 	}
@@ -389,6 +389,7 @@ export class ApertureClient {
 				approved: this.approved,
 				capabilities: this.capabilities,
 			});
+			this.updateBadge();
 		})();
 
 		this.approvalPendingPromise.finally(() => {
@@ -556,6 +557,7 @@ export class ApertureClient {
 					approved: this.approved,
 					capabilities: this.capabilities,
 				});
+				this.updateBadge();
 			},
 		});
 	}

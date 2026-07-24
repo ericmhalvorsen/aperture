@@ -116,20 +116,20 @@ export function injectStyles() {
       transition: background-color 0.3s ease;
     }
 
-    #aperture-badge .dot.connected {
+    #aperture-badge .dot.approved {
       background-color: #10b981;
       box-shadow: 0 0 8px #10b981;
       animation: aperture-pulse 2s infinite;
     }
 
-    #aperture-badge .dot.connecting {
+    #aperture-badge .dot.pending {
       background-color: #f59e0b;
       box-shadow: 0 0 8px #f59e0b;
     }
 
-    #aperture-badge .dot.disconnected {
-      background-color: #f59e0b;
-      box-shadow: 0 0 8px #f59e0b;
+    #aperture-badge .dot.denied {
+      background-color: #ef4444;
+      box-shadow: 0 0 8px #ef4444;
     }
 
     @keyframes aperture-pulse {

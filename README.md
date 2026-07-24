@@ -2,7 +2,7 @@
 
 # 📷 Aperture
 
-> *Let Agent see browser. Agent build better stuff. Perchance.*
+> *Agent sees your current browser session*
 
 [![npm version](https://img.shields.io/npm/v/@ericmhalvorsen/aperture?style=for-the-badge&color=6366f1&labelColor=0f172a)](https://www.npmjs.com/package/@ericmhalvorsen/aperture)
 [![License](https://img.shields.io/npm/l/@ericmhalvorsen/aperture?style=for-the-badge&color=8b5cf6&labelColor=0f172a)](./LICENSE)
@@ -17,9 +17,15 @@
 
 ---
 
-**Aperture** gives MCP-capable AI coding agents (Claude Code, Cursor, OpenCode, Windsurf) a live, interactive window into your active development browser sessions.
+This package gives MCP-capable AI coding agents (Claude Code, Cursor, OpenCode, Windsurf) a live, interactive window into your active development browser sessions. Instead of manually copy-pasting stack traces, taking desktop screenshots, or guessing computed styling, let an agent look directly at what you're building.
 
-Instead of manually copy-pasting stack traces, taking desktop screenshots, or guessing computed styling, Aperture lets your agent inspect DOM elements, stream console logs and network traffic, capture viewports, and test interactions—all with zero browser extensions, zero CORS hacks, and explicit in-browser user consent.
+### Why this and why not just a browser extension?
+
+* Good question. I don't like browser extensions—this package is a great fit for web applications that you run locally. The idea is that **the application itself** allows your local agent to connect, not a global browser extension. Feel free to just grab claude in chrome but this works better for my use cases.
+
+* Extensions for Chrome and Firefox are on the roadmap for when you want agent inspection on any webpage beyond your local apps. Or just grab an existing extension and skip this one if all you're looking for is browser automation.
+
+* Optionally have either your webserver or your agent harness start the MCP server.
 
 ### Key Capabilities
 
@@ -38,7 +44,7 @@ Instead of manually copy-pasting stack traces, taking desktop screenshots, or gu
 
 ### 1. Connect your agent
 
-Configure your MCP-capable agent to start the Aperture bridge server. 
+Configure your MCP-capable agent to start the Aperture bridge server.
 
 **Claude Desktop / Claude Code**
 Add to `claude_desktop_config.json` (or your Claude Code config):
@@ -117,7 +123,7 @@ Start your app's dev server as usual:
 npm run dev
 ```
 
-You should see a green dot badge in the bottom-right of your page when the agent is connected.
+You should see a badge only while the Aperture server is connected. Its dot is yellow while approval is pending, green when approved, and red when access is denied.
 When the agent makes its first request, you'll see an approval dialog in your browser. Click "Allow" to grant access.
 
 ### More

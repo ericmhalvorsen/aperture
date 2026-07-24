@@ -102,6 +102,7 @@ describe("ApertureClient", () => {
 	test("initializes, connects, and sends registration", async () => {
 		const client = new ApertureClient({ serverUrl: "ws://localhost:3456" });
 		client.connect();
+		expect(document.getElementById("aperture-badge")).toBeNull();
 
 		// Wait for open simulation
 		await new Promise((resolve) => setTimeout(resolve, 15));
@@ -113,6 +114,35 @@ describe("ApertureClient", () => {
 		const registerMsg = parseMessage(activeSocket.send.mock.calls[0][0]);
 		expect(registerMsg.type).toBe("register");
 		expect(registerMsg.url).toBe(window.location.href);
+		expect(document.getElementById("aperture-badge")).not.toBeNull();
+
+		client.disconnect();
+		expect(document.getElementById("aperture-badge")).toBeNull();
+	});
+
+	test("colors the badge by approval status", async () => {
+		const approvalRequest = vi
+			.fn<() => Promise<{ approved: boolean; capabilities: string[] }>>()
+			.mockResolvedValue({ approved: true, capabilities: [] });
+		const client = new ApertureClient({
+			serverUrl: "ws://localhost:3456",
+			onApprovalRequest: approvalRequest,
+		});
+		client.connect();
+		await new Promise((resolve) => setTimeout(resolve, 15));
+
+		expect(
+			document
+				.querySelector("#aperture-badge .dot")
+				?.classList.contains("pending"),
+		).toBe(true);
+
+		await sendToolCall(latestSocket(), "browser_console_logs", { limit: 10 });
+		expect(
+			document
+				.querySelector("#aperture-badge .dot")
+				?.classList.contains("approved"),
+		).toBe(true);
 
 		client.disconnect();
 	});

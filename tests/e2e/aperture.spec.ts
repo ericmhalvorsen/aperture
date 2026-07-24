@@ -152,6 +152,7 @@ test.describe("Aperture Integration", () => {
 
 		// Badge should remain visible
 		await expect(badge).toBeVisible();
+		await expect(badge.locator(".dot")).toHaveClass(/pending/);
 
 		// Approval is requested by the first tool call, not MCP initialization.
 		const overlay = page.locator("#aperture-dialog-overlay");
@@ -172,6 +173,7 @@ test.describe("Aperture Integration", () => {
 		await screenshotCheckbox.uncheck();
 
 		await allowBtn.click();
+		await expect(badge.locator(".dot")).toHaveClass(/approved/);
 
 		// Overlay should disappear
 		await expect(overlay).not.toBeVisible();
@@ -230,14 +232,15 @@ test.describe("Aperture Integration", () => {
 
 		const overlay = page.locator("#aperture-dialog-overlay");
 		await expect(overlay).toBeVisible();
+		const badge = page.locator("#aperture-badge");
 
 		// Click Deny
 		const denyBtn = page.locator("#aperture-btn-deny");
 		await denyBtn.click();
+		await expect(badge.locator(".dot")).toHaveClass(/denied/);
 		await expect(overlay).not.toBeVisible();
 
 		// Open status dialog
-		const badge = page.locator("#aperture-badge");
 		await badge.click();
 
 		await expect(overlay).toBeVisible();
